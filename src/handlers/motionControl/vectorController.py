@@ -59,8 +59,6 @@ class motionControlHandler:
 
 	V = vectorControllerHelper.getController([pose[0], pose[1]], vertices, transFace)
 
-        [vx, vy, w] = [0, 0, 0]
-
         # Pass this desired velocity on to the drive handler
         self.drive_handler.setVelocity(V[0], V[1], pose[2])
         
