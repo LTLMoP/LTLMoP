@@ -101,7 +101,7 @@ class Automaton:
         proposition values associated with the given state
         """
 
-        for key, output_val in self.current_state.outputs.iteritems():
+        for key, output_val in state.outputs.iteritems():
             # Skip any "bitX" region encodings
             if re.match('^bit\d+$', key): continue 
 
