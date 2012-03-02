@@ -129,37 +129,40 @@ class RegionFileInterface:
             pta = wx.Point(*face[0])
             ptb = wx.Point(*face[1])
 
-            # Since we are modifying obj2, it's easier to re-run the loop than keep track of indices
-            # in the case that we are adding two points.  Lazy, yes, but effective for now.
-            clean = False
-            while not clean:
-                clean = True
-                for other_face in obj2.getFaces():
-                    other_pta = wx.Point(*other_face[0])
-                    other_ptb = wx.Point(*other_face[1])
+            new_pt_list = []
+            for other_face in obj2.getFaces():
+                other_pta = wx.Point(*other_face[0])
+                other_ptb = wx.Point(*other_face[1])
 
-                    [on_segment_a, d_a, pint_a] = pointLineIntersection(other_pta, other_ptb, pta)
-                    [on_segment_b, d_b, pint_b] = pointLineIntersection(other_pta, other_ptb, ptb)
-                    if d_a < COLLINEAR_TOLERANCE and d_b < COLLINEAR_TOLERANCE: # Check for collinearity
-                        points = [x for x in obj2.getPoints()]
+                [on_segment_a, d_a, pint_a] = pointLineIntersection(other_pta, other_ptb, pta)
+                [on_segment_b, d_b, pint_b] = pointLineIntersection(other_pta, other_ptb, ptb)
+                if d_a < COLLINEAR_TOLERANCE and d_b < COLLINEAR_TOLERANCE: # Check for collinearity
+                    points = [x for x in obj2.getPoints()]
 
-                        # Figure out where we would add a new point
-                        idxa = points.index(other_pta)
-                        idxb = points.index(other_ptb)
-                        if (idxa == 0 and idxb == len(points)-1) or (idxb == 0 and idxa == len(points)-1):  
-                            idx = 0
-                        else:
-                            idx = max(idxa, idxb)
+                    # Figure out where we would add a new point
+                    idxa = points.index(other_pta)
+                    idxb = points.index(other_ptb)
+                    if (idxa == 0 and idxb == len(points)-1) or (idxb == 0 and idxa == len(points)-1):  
+                        idx = 0
+                    else:
+                        idx = max(idxa, idxb)
 
-                        # Add a point if appropriate
-                        if on_segment_a and not (pta == other_pta or pta == other_ptb): 
-                            obj2.addPoint(pta-obj2.position, idx)
-                            clean = False
-                            break
-                        if on_segment_b and not (ptb == other_pta or ptb == other_ptb): 
-                            obj2.addPoint(ptb-obj2.position, idx)
-                            clean = False
-                            break
+                    # Add a point if appropriate
+                    if on_segment_a and not (pta == other_pta or pta == other_ptb):
+                        new_pt_list.append([pta-obj2.position, idx])
+                    if on_segment_b and not (ptb == other_pta or ptb == other_ptb): 
+                        new_pt_list.append([ptb-obj2.position, idx])
+            
+            # Increment indices (thus making up for fact that we are inserting
+            # after the appropriate indices were determined in the above loop.
+            for k in range(len(new_pt_list)-1, 0, -1):
+                j = k-1
+                while j >= 0:
+                    if new_pt_list[j][1] <= new_pt_list[k][1]:
+                        new_pt_list[k][1] += 1
+                    j -= 1
+            for new_pt in new_pt_list:
+                obj2.addPoint(new_pt[0], new_pt[1])
 
     def recalcAdjacency(self):
         """
@@ -912,7 +915,7 @@ def pointLineIntersection(pt1, pt2, test_pt):
         xi = (x1*c1 - xm*c2 - y1 + ym)/(c1 - c2)
         yi = y1 + c1*(xi - x1)
         d = (xm - xi)**2 + (ym - yi)**2
-        on_segment = min(x1,x2) < xi < max(x1,x2) 
+        on_segment = (min(x1,x2) < xi < max(x1,x2)) and (min(y1,y2) < yi < max(y1,y2))
 
     return [on_segment, d, wx.Point(xi, yi)]
 
