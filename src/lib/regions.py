@@ -319,7 +319,9 @@ class RegionFileInterface:
     def getBoundingBox(self):
         if self.regions == []:
             return None
-
+        
+        p = self.regions[0]
+        
         leftMargin = min([pt.x for region in self.regions for pt in region.getPoints()])
         topMargin = min([pt.y for region in self.regions for pt in region.getPoints()])
         rightExtent = max([pt.x for region in self.regions for pt in region.getPoints()]) - leftMargin
@@ -339,7 +341,7 @@ class RegionFileInterface:
                     "Regions": "Stored as JSON string",
                     "Transitions": "Region 1 Name, Region 2 Name, Bidirectional transition faces (face1_x1, face1_y1, face1_x2, face1_y2, face2_x1, ...)",
                     "CalibrationPoints": "Vertices to use for map calibration: (vertex_region_name, vertex_index)",
-                    "Obstacles": "Names of regions to treat as obstacles"}    
+                    "Obstacles": "Names of regions to treat as obstacles"}
     
         regionData = []
         for r in self.regions:
@@ -412,36 +414,70 @@ class RegionFileInterface:
             compatMode = False
         except ValueError:
             compatMode = True
-
+        
+        # If we are not reading a decomposed file, assume that specEditor is
+        # requesting a read of the new file format produced by regionEditor
+        # Need to get the corner of the bounding box to offset all regions by
+        if not "_decomposed" in filename:
+            xOff = -min([float(pt[0]) for rd in rdata for pt in rd['points']])
+            yOff = -min([float(pt[1]) for rd in rdata for pt in rd['points']])
+            offsets = (xOff, yOff)
         for rd in rdata:
             newRegion = Region()
             if compatMode:
-                regionData = rd.split("\t");
+                regionData = rd.split();
                 newRegion.setDataOld(regionData)    
             else:
-                newRegion.setData(rd)    
+                # If we are not reading a decomposed file, assume that
+                # specEditor is requesting a read of the new file format
+                # produced by regionEditor
+                # New file format has region points in absolute coordinates in
+                # real world units, and all regions are polygons
+                if not "_decomposed" in filename:
+                    rd = self.convertRegionDataNewToOld(rd, offsets)
+                newRegion.setData(rd)
 
             self.regions.append(newRegion)
 
         # Make an empty adjacency matrix of size (# of regions) x (# of regions)
         self.transitions = [[[] for j in range(len(self.regions))] for i in range(len(self.regions))]
         for transition in data["Transitions"]:
-            transData = transition.split("\t");
+            transition = re.sub('[\[\]\(\)]', '', transition) # Remove brackets
+            transData = transition.split();
             region1 = self.indexOfRegionWithName(transData[0])
             region2 = self.indexOfRegionWithName(transData[1])
             faces = []
-            for i in range(2, len(transData), 4):
-                p1 = Point(int(transData[i]), int(transData[i+1]))
-                p2 = Point(int(transData[i+2]), int(transData[i+3]))
-                faces.append(tuple(sorted((p1, p2))))
+            
+            # If we are not reading a decomposed file, assume that specEditor
+            # is requesting a read of the new file format produced by
+            # regionEditor
+            # Transitions are defined by face index, not point values, and
+            # uni-directional transitions are possible
+            if not "_decomposed" in filename:
+                for i in range(2, len(transData), 2):
+                    ip1 = int(transData[i])
+                    ip2 = int(transData[i % len(self.regions[region1].pointArray)])
+                    p1 = self.regions[region1].pointArray[ip1]
+                    p2 = self.regions[region1].pointArray[ip2]
+                    faces.append(tuple(sorted((p1, p2))))
                 
-            # During adjacency matrix reconstruction, we'll mirror over the diagonal
-            self.transitions[region1][region2] = faces
-            self.transitions[region2][region1] = faces
+                # Don't assume bidirectional transitions
+                # Adjacency matrix may be nonsymmetric
+                self.transitions[region1][region2] = faces
+            
+            else:
+                for i in range(2, len(transData), 4):
+                    p1 = Point(int(transData[i]), int(transData[i+1]))
+                    p2 = Point(int(transData[i+2]), int(transData[i+3]))
+                    faces.append(tuple(sorted((p1, p2))))
+                
+                # During adjacency matrix reconstruction, we'll mirror over the diagonal
+                self.transitions[region1][region2] = faces
+                self.transitions[region2][region1] = faces
 
         if "CalibrationPoints" in data:
             for point in data["CalibrationPoints"]:
-                [name, index] = point.split("\t")
+                [name, index] = point.split()
                 self.regions[self.indexOfRegionWithName(name)].alignmentPoints[int(index)] = True
 
         if "Obstacles" in data:
@@ -451,6 +487,58 @@ class RegionFileInterface:
         self.filename = filename
 
         return True
+    
+    def convertRegionDataNewToOld(self, rd, offsets):
+        """
+        Take in data on all the regions that was read in the new file format
+        and convert it to data on the regions in the old format. Points will be
+        scaled by 1000 (to get milimeter accuracy) and other fields that are
+        unused in the new format will be set.
+        
+        rd - Single region data dictionary
+        offsets - Whole map offsets to avoid negative coordinates
+                  (xOffset, yOffset)
+        """
+        # name, position, size, color, type, points, holeList
+        # name and color can stay the same
+        rdnew = {'name':rd['name'],
+                 'color':rd['color']}
+        
+        # type is always polygon
+        rdnew['type'] = 'poly'
+        
+        
+        #########################
+        # TODO:
+        #   -Don't do the stupid 1000 multiplier
+        #   -Make transformation matrix
+        #   -Pass in proj into this function
+        #   -Save transformation matrix to calibration
+        #########################
+        
+        
+        
+        # Each point in points and holeList must be converted to pixels
+        # Also get bounding box then convert all points to relative coordinates
+        points = [(int(1000.0 * pt[0]), int(-1000.0 * pt[1])) \
+                  for pt in rd['points']]
+        leftMargin = min([pt[0] for pt in points])
+        topMargin = min([pt[1] for pt in points])
+        rightExtent = max([pt[0] for pt in points]) - leftMargin
+        downExtent = max([pt[1] for pt in points]) - topMargin
+        points = [(pt[0] - leftMargin, pt[1] - topMargin) for pt in points]
+        holeList = [(int(1000.0 * pt[0]) - leftMargin, \
+                     int(-1000.0 * pt[1]) - topMargin) \
+                    for hole in rd['holeList'] for pt in hole]
+        rdnew['points'] = points
+        rdnew['holeList'] = holeList
+        xOff, yOff = offsets
+        xOff = int(xOff * 1000)
+        yOff = int(yOff * 1000)
+        rdnew['position'] = (leftMargin + xOff, topMargin + yOff)
+        rdnew['size'] = (rightExtent, downExtent)
+        
+        return rdnew
    
 ############################################################
  

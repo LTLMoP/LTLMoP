@@ -141,6 +141,7 @@ def main(argv):
     proj.loadProject(spec_file)
     proj.rfiold = proj.rfi
     proj.rfi = proj.loadRegionFile(decomposed=True)
+    print proj.rfi
 
     ##########################
     # Initialize each module #
@@ -197,6 +198,7 @@ def main(argv):
     print "Loading automaton..."
 
     FSA = fsa.Automaton(proj)
+
 
     success = FSA.loadFile(aut_file, proj.enabled_sensors, proj.enabled_actuators, proj.all_customs)
     if not success: return

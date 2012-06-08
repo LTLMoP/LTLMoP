@@ -14,33 +14,21 @@
     :Usage: ``calibrate.py [spec_file]``
 """
 
-import wx, sys, os, socket
-import fileMethods, regions, project
-from numpy import *
-import mapRenderer
-from _transformations import affine_matrix_from_points
+import wx
+import sys
+import os
+import socket
+import collections
+import copy
+import project
+import numpy
+import _transformations
+import vicon
+from regionsPoints import Region, Point
+import time
 
-# begin wxGlade: extracode
-# end wxGlade
-
-class CalibrateFrame(wx.Frame):
+class CalibrateHelper:
     def __init__(self, *args, **kwds):
-        # begin wxGlade: CalibrateFrame.__init__
-        kwds["style"] = wx.DEFAULT_FRAME_STYLE
-        wx.Frame.__init__(self, *args, **kwds)
-        self.panel_map = wx.Panel(self, -1, style=wx.SUNKEN_BORDER)
-        self.label_instructions = wx.StaticText(self, -1, "Welcome to the LTLMoP Calibration Tool")
-        self.button_go = wx.Button(self, -1, "Begin")
-
-        self.__set_properties()
-        self.__do_layout()
-
-        self.Bind(wx.EVT_BUTTON, self.onButtonGo, self.button_go)
-        # end wxGlade
-
-        self.mapBitmap = None
-        self.robotPos = None
-
         if len(sys.argv) < 2:
             print "You must specify a specification file."
             print "Usage: %s [spec_file]" % sys.argv[0]
@@ -60,184 +48,1258 @@ class CalibrateFrame(wx.Frame):
         if self.proj.currentConfig.name != "calibrate":
             print "(ERROR) Calibration can only be run on a specfication file with a calibration configuration.\nPlease use ConfigEditor to calibrate a configuration."
             sys.exit(3)
-
-        # Initialize the init and pose handlers
-
-        print "Importing handler functions..."
-        self.proj.importHandlers(['init','pose'])
-
-        self.panel_map.SetBackgroundColour(wx.WHITE)
-        self.panel_map.SetBackgroundStyle(wx.BG_STYLE_CUSTOM)
-        self.panel_map.Bind(wx.EVT_PAINT, self.onPaint)
-        self.Bind(wx.EVT_SIZE, self.onResize, self)
-
-        self.onResize(None)
-
-        # Start timer for blinking
-        self.robotPos = None
-        self.markerPos = None
-        self.timer = wx.Timer(self)
-        self.timer.Start(500)
-        self.Bind(wx.EVT_TIMER, self.moveRobot)
-
-        self.calibrationWizard = self.doCalibration()
-
-    def onResize(self, event):
-        size = self.panel_map.GetSize()
-        self.mapBitmap = wx.EmptyBitmap(size.x, size.y)
-        self.mapScale = mapRenderer.drawMap(self.mapBitmap, self.proj.rfi, scaleToFit=True, drawLabels=True, memory=True)
-
-        self.Refresh()
-        self.Update()
-
-        if event is not None:
-            event.Skip()
-
-    def onPaint(self, event=None):
-        if self.mapBitmap is None:
-            return
-
-        if event is None:
-            dc = wx.ClientDC(self.panel_map)
-        else:
-            pdc = wx.AutoBufferedPaintDC(self.panel_map)
-            try:
-                dc = wx.GCDC(pdc)
-            except:
-                dc = pdc
-            else:
-                self.panel_map.PrepareDC(pdc)
-
-        self.panel_map.PrepareDC(dc)
-        dc.BeginDrawing()
-
-        # Draw background
-        dc.DrawBitmap(self.mapBitmap, 0, 0)
-
-        # Draw robot
-        if self.robotPos is not None:
-            [x,y] = map(lambda x: int(self.mapScale*x), self.robotPos)
-            dc.DrawCircle(x, y, 15)
-
-        dc.EndDrawing()
-
-        if event is not None:
-            event.Skip()
-
-    def setStepInfo(self, label, button):
-        self.label_instructions.SetLabel(label)
-        self.button_go.SetLabel(button)
-        self.Layout()
-        self.Refresh()
-
+    
     def doCalibration(self):
-        # Load the calibration points from region file
-
-        pt_names = []
-        file_pts = None
-        for [name, index, x, y] in self.proj.rfi.getCalibrationPoints():
-            pt_names.append(name + "_P" + str(index))
-            new_pt = mat([float(x), float(y)]).T
-            if file_pts is None:
-                file_pts = new_pt
-            else:
-                file_pts = hstack([file_pts, new_pt])
-
-        if file_pts is None or file_pts.shape[1] < 3:
-            wx.MessageBox("Please choose at least three points in Region Editor for calibration.  Quitting.", "Error", wx.OK)
-            sys.exit(0)
-
-        # Get real coordinates for calibration points
-        real_pts = None
-        for i, point in enumerate(file_pts.T):
-            # Show blinking circle on map
-            self.markerPos = point.tolist()[0]
-
-            self.setStepInfo('Please place robot at Point %s shown on the map and press [Capture].' % pt_names[i], "Capture")
-            yield
-
-            self.markerPos = None # Disable blinking circle
-
-            pose = self.proj.h_instance['pose'].getPose()
-
-            new_pt = mat(pose[0:2]).T
-            if real_pts is None:
-                real_pts = new_pt
-            else:
-                real_pts = hstack([real_pts, new_pt])
-
-            self.setStepInfo('Read real point %s coordinate of [%f, %f].' % (pt_names[i], pose[0], pose[1]), "Continue")
-            yield
-
-        # Calculate transformation:
-        T = affine_matrix_from_points(real_pts, file_pts)
-
-        self.setStepInfo("Calibration complete!", "Quit")
-
-        # Sends the data back to Config Editor via UDP, or just print
+        # Run the calibration GUI
+        # It will call outputTransformationMatrix when calibration is saved
+        app = wx.PySimpleApp(0)
+        wx.InitAllImageHandlers()
+        calibGUI = CalibrationFrame(None, -1, "")
+        calibGUI.Initialize(parent=self)
+        app.SetTopWindow(calibGUI)
+        app.MainLoop()
+        
+    
+    def outputTransformationMatrix(self, T):
+        """
+        Send the transformation matrix to Config Editor via UDP,
+        or just print if run from command line.
+        """
         output = repr(T)
-
         if self.configEditorPort is None:
             print output
         else:
             UDPSock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
             UDPSock.sendto(output, self.configEditorPort)
-        yield
+        return True
 
-    def moveRobot(self, event, state=[False]):
-        if self.markerPos is not None:
-            if not state[0]:
-                self.robotPos = None
-            else:
-                self.robotPos = self.markerPos
 
-            self.onPaint()
-            state[0] = not state[0]
+class CalibrationFrame(wx.Frame):
+    def __init__(self, *args, **kwds):
+        # begin wxGlade: CalibrationFrame.__init__
+        kwds["style"] = wx.DEFAULT_FRAME_STYLE
+        wx.Frame.__init__(self, *args, **kwds)
+        
+        # Menu Bar
+        self.calibFrame_menubar = wx.MenuBar()
+        self.filemenu = wx.Menu()
+        self.menuReset = wx.MenuItem(self.filemenu, wx.NewId(), "Reset", "", wx.ITEM_NORMAL)
+        self.filemenu.AppendItem(self.menuReset)
+        self.menuSave = wx.MenuItem(self.filemenu, wx.NewId(), "Save", "", wx.ITEM_NORMAL)
+        self.filemenu.AppendItem(self.menuSave)
+        self.menuExit = wx.MenuItem(self.filemenu, wx.NewId(), "Exit", "", wx.ITEM_NORMAL)
+        self.filemenu.AppendItem(self.menuExit)
+        self.calibFrame_menubar.Append(self.filemenu, "File")
+        self.editmenu = wx.Menu()
+        self.menuUndo = wx.MenuItem(self.editmenu, wx.NewId(), "Undo", "", wx.ITEM_NORMAL)
+        self.editmenu.AppendItem(self.menuUndo)
+        self.menuRedo = wx.MenuItem(self.editmenu, wx.NewId(), "Redo", "", wx.ITEM_NORMAL)
+        self.editmenu.AppendItem(self.menuRedo)
+        self.editmenu.AppendSeparator()
+        self.menuSelectAll = wx.MenuItem(self.editmenu, wx.NewId(), "Select All", "", wx.ITEM_NORMAL)
+        self.editmenu.AppendItem(self.menuSelectAll)
+        self.menuClearAll = wx.MenuItem(self.editmenu, wx.NewId(), "Clear All Points", "", wx.ITEM_NORMAL)
+        self.editmenu.AppendItem(self.menuClearAll)
+        self.calibFrame_menubar.Append(self.editmenu, "Edit")
+        self.toolsmenu = wx.Menu()
+        self.menuShowMarkers = wx.MenuItem(self.toolsmenu, wx.NewId(), "Show Markers", "", wx.ITEM_CHECK)
+        self.toolsmenu.AppendItem(self.menuShowMarkers)
+        self.menuClearMarkers = wx.MenuItem(self.toolsmenu, wx.NewId(), "Clear Markers", "", wx.ITEM_NORMAL)
+        self.toolsmenu.AppendItem(self.menuClearMarkers)
+        self.toolsmenu.AppendSeparator()
+        self.menuLoadImage = wx.MenuItem(self.toolsmenu, wx.NewId(), "Load Image", "", wx.ITEM_NORMAL)
+        self.toolsmenu.AppendItem(self.menuLoadImage)
+        self.menuDimen = wx.MenuItem(self.toolsmenu, wx.NewId(), "Dimension Image", "", wx.ITEM_NORMAL)
+        self.toolsmenu.AppendItem(self.menuDimen)
+        self.menuClearImage = wx.MenuItem(self.toolsmenu, wx.NewId(), "Clear Image", "", wx.ITEM_NORMAL)
+        self.toolsmenu.AppendItem(self.menuClearImage)
+        self.calibFrame_menubar.Append(self.toolsmenu, "Tools")
+        self.helpmenu = wx.Menu()
+        self.menuHowTo = wx.MenuItem(self.helpmenu, wx.NewId(), "How To Use", "", wx.ITEM_NORMAL)
+        self.helpmenu.AppendItem(self.menuHowTo)
+        self.menuAbout = wx.MenuItem(self.helpmenu, wx.NewId(), "About", "", wx.ITEM_NORMAL)
+        self.helpmenu.AppendItem(self.menuAbout)
+        self.calibFrame_menubar.Append(self.helpmenu, "Help")
+        self.SetMenuBar(self.calibFrame_menubar)
+        # Menu Bar end
+        self.panel_1 = wx.Panel(self, -1)
+        self.toggleVicon = wx.BitmapButton(self.panel_1, -1, wx.NullBitmap)
+        self.buttonImage = wx.BitmapButton(self.panel_1, -1, wx.NullBitmap)
+        self.toggleAddPoint = wx.BitmapButton(self.panel_1, -1, wx.NullBitmap)
+        self.toggleDeletePoint = wx.BitmapButton(self.panel_1, -1, wx.NullBitmap)
+        self.toggleDimen = wx.BitmapButton(self.panel_1, -1, wx.NullBitmap)
+        self.buttonSave = wx.BitmapButton(self.panel_1, -1, wx.NullBitmap)
+        self.textEnterPointX = wx.TextCtrl(self.panel_1, -1, "")
+        self.textEnterPointY = wx.TextCtrl(self.panel_1, -1, "")
+        self.buttonEnterPoint = wx.Button(self.panel_1, wx.ID_OK, "OK")
+        self.chkbxShear = wx.CheckBox(self.panel_1, -1, "Lock aspect ratio")
+        self.map = wx.Panel(self, -1)
+        self.ref = wx.Panel(self, -1)
 
-    def __set_properties(self):
-        # begin wxGlade: CalibrateFrame.__set_properties
-        self.SetTitle("Calibration Tool")
-        self.SetSize((898, 632))
-        self.label_instructions.SetFont(wx.Font(14, wx.DEFAULT, wx.NORMAL, wx.NORMAL, 0, "Lucida Grande"))
-        self.button_go.SetDefault()
+        self.__set_properties()
+        self.__do_layout()
+
+        self.Bind(wx.EVT_MENU, self.OnMenuReset, self.menuReset)
+        self.Bind(wx.EVT_MENU, self.OnMenuSave, self.menuSave)
+        self.Bind(wx.EVT_MENU, self.OnMenuExit, self.menuExit)
+        self.Bind(wx.EVT_MENU, self.OnMenuUndo, self.menuUndo)
+        self.Bind(wx.EVT_MENU, self.OnMenuRedo, self.menuRedo)
+        self.Bind(wx.EVT_MENU, self.OnMenuSelectAll, self.menuSelectAll)
+        self.Bind(wx.EVT_MENU, self.OnMenuClearAll, self.menuClearAll)
+        self.Bind(wx.EVT_MENU, self.OnMenuShowMarkers, self.menuShowMarkers)
+        self.Bind(wx.EVT_MENU, self.OnMenuClearMarkers, self.menuClearMarkers)
+        self.Bind(wx.EVT_MENU, self.OnMenuLoadImage, self.menuLoadImage)
+        self.Bind(wx.EVT_MENU, self.OnMenuDimen, self.menuDimen)
+        self.Bind(wx.EVT_MENU, self.OnMenuClearImage, self.menuClearImage)
+        self.Bind(wx.EVT_MENU, self.OnMenuHowTo, self.menuHowTo)
+        self.Bind(wx.EVT_MENU, self.OnMenuAbout, self.menuAbout)
+        self.Bind(wx.EVT_BUTTON, self.OnToggleVicon, self.toggleVicon)
+        self.Bind(wx.EVT_BUTTON, self.OnButtonImage, self.buttonImage)
+        self.Bind(wx.EVT_BUTTON, self.OnToggleAddPoint, self.toggleAddPoint)
+        self.Bind(wx.EVT_BUTTON, self.OnToggleDeletePoint, self.toggleDeletePoint)
+        self.Bind(wx.EVT_BUTTON, self.OnToggleDimen, self.toggleDimen)
+        self.Bind(wx.EVT_BUTTON, self.OnButtonSave, self.buttonSave)
+        self.Bind(wx.EVT_BUTTON, self.OnButtonEnterPoint, id=wx.ID_OK)
         # end wxGlade
-
+        
+        # Bind mouse events
+        self.map.Bind(wx.EVT_LEFT_DOWN, self.OnMapMouseLeftDown, self.map)
+        self.map.Bind(wx.EVT_LEFT_UP, self.OnMapMouseLeftUp, self.map)
+        self.map.Bind(wx.EVT_MOUSEWHEEL, self.OnMapMouseWheel, self.map)
+        self.map.Bind(wx.EVT_ENTER_WINDOW, self.OnMapEnterWindow, self.map)
+        self.map.Bind(wx.EVT_LEAVE_WINDOW, self.OnMapLeaveWindow, self.map)
+        self.ref.Bind(wx.EVT_LEFT_DOWN, self.OnRefMouseLeftDown, self.ref)
+        self.ref.Bind(wx.EVT_LEFT_UP, self.OnRefMouseLeftUp, self.ref)
+        self.ref.Bind(wx.EVT_MOUSEWHEEL, self.OnRefMouseWheel, self.ref)
+        self.ref.Bind(wx.EVT_ENTER_WINDOW, self.OnRefEnterWindow, self.ref)
+        self.ref.Bind(wx.EVT_LEAVE_WINDOW, self.OnRefLeaveWindow, self.ref)
+        
+        # Bind keyboard events
+        self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown, self)
+        self.map.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown, self.map)
+        self.ref.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown, self.ref)
+        
+        # Add close event handler to cleanup before closing
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
+        
+    def Initialize(self, parent=None):
+        """Perform the initialization part that requires use of either
+        specEditor or regionEditor modes to be set, and access to parent.
+        
+        parent - Calling object, must be either CalibrateHelper or regionEditor
+        """
+        # Check that parent object was passed in correctly
+        if parent.__class__.__name__ == 'regionEditor':
+            self.parent = parent
+            self.isCalibHelper = False
+            print "CalibrationFrame opening in regionEditor mode."
+            if self.parent.regions:
+                self.regions = self.parent.regions
+            else:
+                print "ERROR: No regions defined. Exiting calibration."
+                self.Destroy()
+                return
+        elif parent.__class__.__name__ == 'CalibrateHelper':
+            self.parent = parent
+            self.isCalibHelper = True
+            print "CalibrationFrame opening in specEditor mode."
+            if self.parent.proj.rfi.regions:
+                self.regions = []
+                for reg in self.parent.proj.rfi.regions:
+                    verts = []
+                    for pt in reg.getPoints():
+                        verts.append(Point(float(pt.x), float(pt.y)))
+                    self.regions.append(Region(points=verts, name=reg.name, \
+                        holes=reg.holeList, rgb=reg.color, \
+                        obst=reg.isObstacle))
+            else:
+                print "ERROR: No regions defined. Exiting calibration."
+                self.Destroy()
+                return
+        else:
+            print "ERROR: None or invalid parent object passed in to " + \
+                "CalibrationFrame. Exiting calibration."
+            self.Destroy()
+            return
+        
+        # Keep track of which buttons are toggled
+        # Since we are using bitmap buttons and they can't toggle
+        # Also load all buttons' bitmaps and set appropriate ones
+        ltlmopRoot = self.GetLtlmopRoot(sys.argv[0])
+        if not ltlmopRoot:
+            print "Cannot find LTLMoP root directory. Exiting..."
+        self.toggleStates = {'vicon': False,
+                             'addPoint': False,
+                             'deletePoint': False,
+                             'dimen': False}
+        self.buttonBitmaps = {'vicon': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\streamMarkersIcon.bmp"), wx.BITMAP_TYPE_ANY),
+            'viconSel': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\streamMarkersIconSel.bmp"), wx.BITMAP_TYPE_ANY),
+            'image': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\importImageIcon.bmp"), wx.BITMAP_TYPE_ANY),
+            'addPoint': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\addCalibPointIcon.bmp"), wx.BITMAP_TYPE_ANY),
+            'addPointSel': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\addCalibPointIconSel.bmp"), wx.BITMAP_TYPE_ANY),
+            'deletePoint': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\delCalibPointIcon.bmp"), wx.BITMAP_TYPE_ANY),
+            'deletePointSel': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\delCalibPointIconSel.bmp"), wx.BITMAP_TYPE_ANY),
+            'dimen': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\dimensionIcon.bmp"), wx.BITMAP_TYPE_ANY),
+            'dimSel': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\dimensionIconSel.bmp"), wx.BITMAP_TYPE_ANY),
+            'save': wx.Bitmap(os.path.join(ltlmopRoot, \
+            "images\\saveIcon.bmp"), wx.BITMAP_TYPE_ANY)}
+        self.toggleVicon.SetBitmapLabel(self.buttonBitmaps['vicon'])
+        self.buttonImage.SetBitmapLabel(self.buttonBitmaps['image'])
+        self.toggleAddPoint.SetBitmapLabel(self.buttonBitmaps['addPoint'])
+        self.toggleDeletePoint.SetBitmapLabel(self.buttonBitmaps['deletePoint'])
+        self.toggleDimen.SetBitmapLabel(self.buttonBitmaps['dimen'])
+        self.buttonSave.SetBitmapLabel(self.buttonBitmaps['save'])
+        
+        # Determine mapping of the map panel to the field
+        # Avoid difficulties by having same scale for x and y
+        mapLen = self.map.GetSize() # Initial size of map panel (pixels)
+        xmin, xmax, ymin, ymax = self.GetBoundingBox()  # Initial range of map
+        # pose = pixPose * scale + offset
+        # Note: y-pixels and y-pose have opposite directions
+        xScale = (xmax - xmin) / float(mapLen[0])
+        yScale = (ymax - ymin) / float(mapLen[1])
+        maxScale = max(xScale, yScale)
+        xOffset = xmin
+        if self.isCalibHelper:
+            self.mapScale = Point(maxScale, maxScale)
+            yOffset = ymin
+        else:
+            self.mapScale = Point(maxScale, -maxScale)
+            yOffset = ymax
+        self.mapOffset = Point(xOffset, yOffset)
+        # Determine initial mapping of the reference panel to the field
+        # Initially chooses to view whole field as opposed to 1:1 ratio to map
+        # since when called from specEditor the map regions are defined with
+        # pixels (so coordinates are in the hundreds)
+        refLen = self.ref.GetSize() # Initial size of reference panel (pixels)
+        xmin, xmax, ymin, ymax = (-3.0, 9.0, -3.0, 3.0) # Initial range of ref
+        xScale = (xmax - xmin) / float(refLen[0])
+        yScale = (ymax - ymin) / float(refLen[1])
+        maxScale = max(xScale, yScale)
+        xOffset = xmin
+        yOffset = ymax
+        self.refScale = Point(maxScale, -maxScale)
+        self.refOffset = Point(xOffset, yOffset)
+        
+        # Calibration-related parameters
+        self.calibPoints = []       # List of lists of Points
+                                    # matching map to reference positions
+                                    # [[mapPt1, refPt1], [mapPt2, refPt2], ...]
+        self.newCalibPt = [None, None]  # List of two points
+                                        # for creating new calibration points
+                                        # [mapNewPt, refNewPt]
+        
+        # Background-related parameters
+        self.backgroundImage = None         # Background image data
+        self.backgroundPosition = None      # Position of left top corner and
+                                            # dimensions of the background
+                                            # image in absolute coordinates
+                                            # [x, y, width, height]
+        self.backgroundIsSelected = False   # Indicates if background image
+                                            # is selected (for dragging)
+        self.dimenPoint = None              # Holder for first point during
+                                            # dimensioning of image for scaling
+        
+        # Mouse-related parameters
+        self.mapLeftClickPt = Point(0.0, 0.0)
+        self.refLeftClickPt = Point(0.0, 0.0)
+        self.selectedPoints = []    # Points that have been selected by mouse
+        tolerance = 5.0             # Pixel tolerance to consider "same point"
+        self.mapTolerance = tolerance * self.mapScale.x
+        self.refTolerance = tolerance * self.refScale.x
+        
+        # Set up for undo/redo capabilities
+        # TODO: Disable self.menuUndo and self.menuRedo
+        self.unredoBufLen = 50
+        self.undoActions = collections.deque()
+        self.redoActions = collections.deque()
+        
+        # Create Vicon listener
+        self.markerPoses = []   # Marker positions to be drawn
+        self.viconListener = vicon.ViconMarkerListener(self)
+        
+        # Display the GUI window and set up the map canvas
+        self.Show()
+        self.Redraw()
+    
+    def __set_properties(self):
+        # begin wxGlade: CalibrationFrame.__set_properties
+        self.SetTitle("Map Calibration")
+        self.SetBackgroundColour(wx.Colour(240, 240, 240))
+        self.toggleVicon.SetMinSize((32, 32))
+        self.toggleVicon.SetToolTipString("Stream markers")
+        self.buttonImage.SetMinSize((32, 32))
+        self.buttonImage.SetToolTipString("Import image")
+        self.toggleAddPoint.SetMinSize((32, 32))
+        self.toggleAddPoint.SetToolTipString("Add calibration point")
+        self.toggleDeletePoint.SetMinSize((32, 32))
+        self.toggleDeletePoint.SetToolTipString("Delete calibration point")
+        self.toggleDimen.SetMinSize((32, 32))
+        self.toggleDimen.SetToolTipString("Scale image")
+        self.buttonSave.SetMinSize((32, 32))
+        self.buttonSave.SetToolTipString("Save and return")
+        self.textEnterPointX.SetMinSize((40, 25))
+        self.textEnterPointX.SetToolTipString("x")
+        self.textEnterPointX.Enable(False)
+        self.textEnterPointY.SetMinSize((40, 25))
+        self.textEnterPointY.SetToolTipString("y")
+        self.textEnterPointY.Enable(False)
+        self.buttonEnterPoint.SetMinSize((25, 25))
+        self.buttonEnterPoint.SetToolTipString("Create calibration point")
+        self.map.SetMinSize((600, 300))
+        self.map.SetBackgroundColour(wx.Colour(255, 255, 255))
+        self.ref.SetMinSize((600, 300))
+        self.ref.SetBackgroundColour(wx.Colour(255, 255, 255))
+        # end wxGlade
+    
     def __do_layout(self):
-        # begin wxGlade: CalibrateFrame.__do_layout
-        sizer_1 = wx.BoxSizer(wx.VERTICAL)
-        sizer_2 = wx.BoxSizer(wx.HORIZONTAL)
-        sizer_1.Add(self.panel_map, 1, wx.EXPAND, 0)
-        sizer_1.Add((20, 15), 0, 0, 0)
-        sizer_2.Add((15, 20), 0, 0, 0)
-        sizer_2.Add(self.label_instructions, 1, 0, 0)
-        sizer_2.Add(self.button_go, 0, 0, 0)
-        sizer_2.Add((15, 20), 0, 0, 0)
-        sizer_1.Add(sizer_2, 0, wx.EXPAND, 0)
-        sizer_1.Add((20, 15), 0, 0, 0)
-        self.SetSizer(sizer_1)
+        # begin wxGlade: CalibrationFrame.__do_layout
+        sizer_6 = wx.BoxSizer(wx.VERTICAL)
+        sizer_7 = wx.BoxSizer(wx.HORIZONTAL)
+        sizer_8 = wx.BoxSizer(wx.HORIZONTAL)
+        sizer_7.Add(self.toggleVicon, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sizer_7.Add(self.buttonImage, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sizer_7.Add(self.toggleAddPoint, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sizer_7.Add(self.toggleDeletePoint, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sizer_7.Add(self.toggleDimen, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sizer_7.Add(self.buttonSave, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sizer_8.Add(self.textEnterPointX, 0, wx.RIGHT | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 2)
+        sizer_8.Add(self.textEnterPointY, 0, wx.LEFT | wx.RIGHT | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 2)
+        sizer_8.Add(self.buttonEnterPoint, 0, wx.LEFT | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 2)
+        sizer_7.Add(sizer_8, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sizer_7.Add(self.chkbxShear, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL, 5)
+        self.panel_1.SetSizer(sizer_7)
+        sizer_6.Add(self.panel_1, 0, wx.EXPAND, 0)
+        sizer_6.Add(self.map, 1, wx.BOTTOM | wx.EXPAND, 3)
+        sizer_6.Add(self.ref, 1, wx.TOP | wx.EXPAND, 3)
+        self.SetSizer(sizer_6)
+        sizer_6.Fit(self)
         self.Layout()
         # end wxGlade
+    
+    def OnClose(self, event):
+        """Perform cleanup tasks and close the application."""
+        self.viconListener.stop()
+        self.Destroy()
+        
+    def OnMenuReset(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        """Clear all calibration points, background images, and markers."""
+        self.OnMenuClearMarkers(None)
+        self.OnMenuClearImage(None)
+        self.OnMenuClearAll(None)
+    
+    def OnMenuSave(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        """Performs calibration on regions using calibration points to
+        calculate a transformation matrix that includes rotation. Moves all the
+        region points as appropriate, then close this GUI."""
+        # Check that sufficient number of calibration points have been defined
+        if len(self.calibPoints) < 3:
+            msg = "Calibration requires that at least 3 calibration " + \
+                "points are defined. Please define more points."
+            notifyDialog = wx.MessageDialog(self, msg, \
+                style=wx.OK|wx.ICON_EXCLAMATION|wx.STAY_ON_TOP)
+            notifyDialog.ShowModal()
+            notifyDialog.Destroy()
+            return
+        
+        # Put calibration points into desired format
+        mapPts = numpy.mat([self.calibPoints[0][0].x, \
+            self.calibPoints[0][0].y]).T
+        regPts = numpy.mat([self.calibPoints[0][1].x, \
+            self.calibPoints[0][1].y]).T
+        for ptPair in self.calibPoints:
+            mapPts = numpy.hstack([mapPts, \
+                numpy.mat([ptPair[0].x, ptPair[0].y]).T])
+            regPts = numpy.hstack([regPts, \
+                numpy.mat([ptPair[1].x, ptPair[1].y]).T])
+        
+        # Shearing allows for the scaling of dimensions independently
+        # (does not keep the aspect ratio) but also skews angles and such
+        # if the points chosen are not perfect
+        allowShear = not self.chkbxShear.IsChecked()
+        
+        # If being used by regionEditor
+        if not self.isCalibHelper:
+            # Get tranformation matrix such that
+            # regPt = T * mapPt
+            T = _transformations.affine_matrix_from_points(mapPts, regPts, \
+                shear=allowShear)
+                
+            # Apply transformation to all region points
+            self.parent.AddToUndo()
+            for reg in self.parent.regions:
+                for pt in reg.pointArray:
+                    ptMat = numpy.mat([pt.x, pt.y, 1.0]).T
+                    newPtMat = T * ptMat
+                    pt.Set(float(newPtMat[0]), float(newPtMat[1]))
+            self.parent.RedrawCanvas()
+        
+        # If being used by CalibrateHelper
+        else:
+            # Get tranformation matrix such that
+            # regPt = T * mapPt
+            T = _transformations.affine_matrix_from_points(regPts, mapPts, \
+                shear=allowShear)
+            
+            success = self.parent.outputTransformationMatrix(T)
+        
+        # Quit calibration
+        self.Close()
 
-    def onButtonGo(self, event): # wxGlade: CalibrateFrame.<event_handler>
-        try:
-            self.calibrationWizard.next()
-        except StopIteration:
-            sys.exit(0)
+    def OnMenuExit(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.Close()
+
+    def OnMenuUndo(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        print "Event handler `OnMenuUndo' not implemented!"
         event.Skip()
 
-# end of class CalibrateFrame
+    def OnMenuRedo(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        print "Event handler `OnMenuRedo' not implemented!"
+        event.Skip()
 
+    def OnMenuSelectAll(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        print "Event handler `OnMenuSelectAll' not implemented!"
+        event.Skip()
 
-class CalibrateApp(wx.App):
-    def OnInit(self):
-        wx.InitAllImageHandlers()
-        frame_1 = CalibrateFrame(None, -1, "")
-        self.SetTopWindow(frame_1)
-        frame_1.Show()
-        return 1
+    def OnMenuClearAll(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        print "Event handler `OnMenuClearAll' not implemented!"
+        event.Skip()
 
-# end of class CalibrateApp
+    def OnMenuShowMarkers(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.OnToggleVicon(None)
+
+    def OnMenuClearMarkers(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        if self.toggleStates['vicon']:
+            self.OnToggleVicon(None)
+            self.viconListener.stop()
+            self.viconListener = ViconMarkerListener(self)
+            time.sleep(0.1)
+        self.markerPoses = []
+        self.RedrawVicon()
+
+    def OnMenuLoadImage(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        # Start up open dialog
+        dialogOpen = wx.FileDialog(self, message="Import Background Image", \
+            defaultDir=os.getcwd(), \
+            style=wx.FD_OPEN)
+        
+        # Hit Open
+        if dialogOpen.ShowModal() == wx.ID_OK:
+            filePath = dialogOpen.GetPath()
+            if not os.path.exists(filePath):
+                return
+            
+            # Load image
+            self.LoadBackgroundImage(filePath)
+    
+    def OnMenuDimen(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.OnToggleDimen(None)
+
+    def OnMenuClearImage(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.backgroundImage = None
+        self.backgroundPosition = None
+        self.backgroundIsSelected = False
+        self.RedrawRef()
+
+    def OnMenuHowTo(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        print "Event handler `OnMenuHowTo' not implemented!"
+        event.Skip()
+
+    def OnMenuAbout(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        print "Event handler `OnMenuAbout' not implemented!"
+        event.Skip()
+
+    def OnToggleVicon(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        # Change control values
+        self.toggleStates['vicon'] = not self.toggleStates['vicon']
+        self.menuShowMarkers.Check(self.toggleStates['vicon'])
+        
+        # Switch Vicon streaming on or off based on state of toggle button
+        if self.toggleStates['vicon']:
+            self.toggleVicon.SetBitmapLabel(self.buttonBitmaps['vicon'])
+            self.viconListener.start()
+        else:
+            self.toggleVicon.SetBitmapLabel(self.buttonBitmaps['vicon'])
+            self.viconListener.stop()
+            # Reinitialize thread to enable restarting it
+            self.viconListener = vicon.ViconMarkerListener(self)
+
+    def OnButtonImage(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.OnMenuLoadImage(None)
+    
+    def OnToggleAddPoint(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.toggleStates['addPoint'] = not self.toggleStates['addPoint']
+        if self.toggleStates['addPoint']:
+            self.toggleAddPoint.SetBitmapLabel( \
+                self.buttonBitmaps['addPointSel'])
+        else:
+            self.toggleAddPoint.SetBitmapLabel(self.buttonBitmaps['addPoint'])
+        self.ResetToggles(toggleKeep='addPoint')
+        # TODO: When menu items are added for add point, flip on here
+    
+    def OnToggleDeletePoint(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.toggleStates['deletePoint'] = not self.toggleStates['deletePoint']
+        if self.toggleStates['deletePoint']:
+            self.toggleDeletePoint.SetBitmapLabel( \
+                self.buttonBitmaps['deletePointSel'])
+        else:
+            self.toggleDeletePoint.SetBitmapLabel( \
+                self.buttonBitmaps['deletePoint'])
+        self.ResetToggles(toggleKeep='deletePoint')
+        # TODO: When menu items are added for delete point, flip on here
+
+    def OnButtonEnterPoint(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        print "Event handler `OnButtonEnterPoint' not implemented"
+        event.Skip()
+
+    def OnToggleDimen(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.toggleStates['dimen'] = not self.toggleStates['dimen']
+        self.menuDimen.Check(self.toggleStates['dimen'])
+        if self.toggleStates['dimen']:
+            self.toggleDimen.SetBitmapLabel(self.buttonBitmaps['dimen'])
+        else:
+            self.toggleDimen.SetBitmapLabel(self.buttonBitmaps['dimen'])
+        self.ResetToggles(toggleKeep='dimen')
+    
+    def OnButtonSave(self, event):  # wxGlade: CalibrationFrame.<event_handler>
+        self.OnMenuSave(None)
+    
+    def OnMapMouseLeftDown(self, event):
+        """Save downclick point on map for future use."""
+        self.mapLeftClickPt, iCalibPt, iReg = \
+            self.SnapPointMap(self.MapPix2M(event.GetPosition()))
+    
+    def OnMapMouseLeftUp(self, event):
+        """React to the finalization of the left click on the map."""
+        ptPix = event.GetPosition()
+        pt, iCalibPt, iReg = \
+            self.SnapPointMap(self.MapPix2M(ptPix))
+        
+        # Creating a calibration point
+        if self.toggleStates['addPoint'] and iCalibPt == -1:
+            # First point clicked for adding new point
+            if not self.newCalibPt[1]:
+                self.newCalibPt[0] = pt
+                self.RedrawMap()
+            
+            # Finalizing calibration point (second point clicked)
+            else:
+                self.calibPoints.append([pt, self.newCalibPt[1]])
+                self.newCalibPt = [None, None]
+                self.Redraw()
+        
+        # Removing a calibration point
+        elif self.toggleStates['deletePoint'] and iCalibPt != -1:
+            self.calibPoints.pop(iCalibPt)
+            self.Redraw()
+        
+        # Panning the map view
+        elif pt.Dist(self.mapLeftClickPt) > self.mapTolerance:
+            downClickPix = self.MapM2Pix(self.mapLeftClickPt)
+            self.mapOffset = Point(self.mapScale.x * \
+                (downClickPix[0] - ptPix[0]) + self.mapOffset.x, \
+                self.mapScale.y * (downClickPix[1] - ptPix[1]) + \
+                self.mapOffset.y)
+            self.RedrawMap()
+    
+    def OnMapMouseWheel(self, event):
+        """Zoom on the map."""
+        ptPix = event.GetPosition()
+        rot = event.GetWheelRotation()          # Usually +/- multiple of 120
+        scaler = 0.75 ** (rot / 120)            # Zoom in to 75% per scroll
+        # Keep mouse on the same point after zooming
+        # pt = ptPix * scale + offset
+        # pt = ptPix * scaleNew + offsetNew
+        self.mapOffset = Point(float(ptPix[0]) * self.mapScale.x * \
+            (1 - scaler) + self.mapOffset.x, float(ptPix[1]) * \
+            self.mapScale.y * (1 - scaler) + self.mapOffset.y)
+        self.mapScale = self.mapScale * scaler
+        self.RedrawMap()
+    
+    def OnMapEnterWindow(self, event):
+        """Set focus on map to enable zooming."""
+        self.map.SetFocus()
+        self.RedrawMap()
+    
+    def OnMapLeaveWindow(self, event):
+        """Return focus to main GUI."""
+        self.SetFocus()
+    
+    def OnRefMouseLeftDown(self, event):
+        """Save downclick point on reference panel for future use."""
+        self.refLeftClickPt, iCalibPt = \
+            self.SnapPointRef(self.RefPix2M(event.GetPosition()))
+    
+    def OnRefMouseLeftUp(self, event):
+        """React to the finalization of the left click on the map."""
+        ptPix = event.GetPosition()
+        pt, iCalibPt = \
+            self.SnapPointRef(self.RefPix2M(ptPix))
+        
+        # Creating a calibration point
+        if self.toggleStates['addPoint'] and iCalibPt == -1:
+            # First point clicked for adding new point
+            if not self.newCalibPt[0]:
+                self.newCalibPt[1] = pt
+                self.RedrawRef()
+            
+            # Finalizing calibration point (second point clicked)
+            else:
+                self.calibPoints.append([self.newCalibPt[0], pt])
+                self.newCalibPt = [None, None]
+                self.Redraw()
+        
+        # Removing a calibration point
+        elif self.toggleStates['deletePoint'] and iCalibPt != -1:
+            self.calibPoints.pop(iCalibPt)
+            self.Redraw()
+        
+        # Setting scale on background image
+        elif self.toggleStates['dimen'] and self.InsideBackgroundImage(pt):
+            # First point on background image
+            if not self.dimenPoint:
+                self.dimenPoint = pt
+            
+            # Second unique point on background image
+            elif pt.Dist(self.dimenPoint) > self.refTolerance:
+                # Request dimension
+                currDist = pt.Dist(self.dimenPoint)
+                dimDlg = wx.TextEntryDialog(self, \
+                    "Current Length: %.3f" % currDist, caption='Dimension')
+                if dimDlg.ShowModal() == wx.ID_OK:
+                    # Check for valid dimension (disallow negative values)
+                    try:
+                        dim = float(dimDlg.GetValue())
+                        if dim <= 0:
+                            dimDlg.Destroy()
+                            return
+                    except ValueError:
+                        dimDlg.Destroy()
+                        return
+                    dimDlg.Destroy()
+                    
+                    # Rescale image
+                    self.backgroundPosition[1] = \
+                        self.backgroundPosition[1] * dim / currDist
+                    self.RedrawRef()
+                self.dimenPoint = None
+        
+        # Panning the reference view or moving the image
+        elif pt.Dist(self.refLeftClickPt) > self.refTolerance:
+            # Moving background image
+            if self.backgroundIsSelected and \
+                    self.InsideBackgroundImage(self.refLeftClickPt):
+                self.backgroundPosition[0] += (pt - self.refLeftClickPt)
+            # Panning reference view
+            else:
+                downClickPix = self.RefM2Pix(self.refLeftClickPt)
+                self.refOffset = Point(self.refScale.x * \
+                    (downClickPix[0] - ptPix[0]) + self.refOffset.x, \
+                    self.refScale.y * (downClickPix[1] - ptPix[1]) + \
+                    self.refOffset.y)
+            self.RedrawRef()
+        
+        # Check if selecting or deselecting the background image
+        elif not self.toggleStates['addPoint'] and \
+                not self.toggleStates['deletePoint'] and \
+                not self.toggleStates['dimen']:
+            isInImage = self.InsideBackgroundImage(pt)
+            # Selecting background image
+            if (not event.CmdDown() or not self.backgroundIsSelected) and \
+                    isInImage:
+                self.backgroundIsSelected = True
+            # Deselecting background image
+            elif (self.backgroundIsSelected and event.CmdDown()) or \
+                    not isInImage:
+                self.backgroundIsSelected = False
+            self.RedrawRef()
+    
+    def OnRefMouseWheel(self, event):
+        """Zoom on the reference panel."""
+        ptPix = event.GetPosition()
+        rot = event.GetWheelRotation()          # Usually +/- multiple of 120
+        scaler = 0.75 ** (rot / 120)            # Zoom in to 75% per scroll
+        # Keep mouse on the same point after zooming
+        # pt = ptPix * scale + offset
+        # pt = ptPix * scaleNew + offsetNew
+        self.refOffset = Point(float(ptPix[0]) * self.refScale.x * \
+            (1 - scaler) + self.refOffset.x, float(ptPix[1]) * \
+            self.refScale.y * (1 - scaler) + self.refOffset.y)
+        self.refScale = self.refScale * scaler
+        self.RedrawRef()
+    
+    def OnRefEnterWindow(self, event):
+        """Set focus on reference panel to enable zooming."""
+        self.ref.SetFocus()
+        self.RedrawRef()
+    
+    def OnRefLeaveWindow(self, event):
+        """Return focus to main GUI."""
+        self.SetFocus()
+    
+    def OnKeyDown(self, event):
+        print "OnKeyDown"
+        event.Skip()
+    
+    def LoadBackgroundImage(self, filePath):
+        image = wx.Image(filePath)
+        if not image.IsOk(): 
+            wx.MessageBox("Cannot import image from file %s" % \
+                (os.path.basename(filePath)), "Error",
+                style = wx.OK | wx.ICON_ERROR, parent=self)
+            return
+        
+        self.backgroundImage = image
+        
+        # If image position is unknown, just keep same image size
+        if not self.backgroundPosition:
+            leftTop = self.RefPix2M((0, 0))
+            xExtent = float(image.GetWidth()) * self.refScale.x
+            yExtent = -float(image.GetHeight()) * self.refScale.y
+            self.backgroundPosition = [leftTop, Point(xExtent, yExtent)]
+        
+        # Redraw the map with the image
+        self.RedrawRef()
+    
+    def Redraw(self):
+        """Redraw map and reference panels."""
+        self.RedrawMap()
+        self.RedrawRef()
+    
+    def RedrawMap(self):
+        """Redraw the map panel."""
+        # Clear map
+        self.map.ClearBackground()
+        
+        # Create device context
+        windc = wx.WindowDC(self.map)
+        dc = wx.GCDC(windc)
+        self.map.PrepareDC(dc)
+        dc.BeginDrawing()
+        
+        # Redraw all regions
+        for region in self.regions:
+            self.DrawRegion(region, dc=dc)
+        
+        # Draw calibration points
+        for iPtPair, ptPair in enumerate(self.calibPoints):
+            self.DrawCalibPoint(self.MapM2Pix(ptPair[0]), str(iPtPair), dc)
+        
+        # Draw single point from currently being made calibration point
+        if self.newCalibPt[0]:
+            self.DrawCalibPoint(self.MapM2Pix(self.newCalibPt[0]), "", dc)
+        
+        dc.EndDrawing()
+    
+    def RedrawRef(self):
+        """Redraw the reference panel."""
+        # Clear ref
+        self.ref.ClearBackground()
+        
+        # Create device context
+        windc = wx.WindowDC(self.ref)
+        dc = wx.GCDC(windc)
+        self.ref.PrepareDC(dc)
+        dc.BeginDrawing()
+        
+        # Draw background image
+        if self.backgroundImage:
+            self.DrawBackgroundImage(dc)
+        
+        # Draw grid
+        self.DrawGrid(dc)
+        
+        # Draw calibration points
+        for iPtPair, ptPair in enumerate(self.calibPoints):
+            self.DrawCalibPoint(self.RefM2Pix(ptPair[1]), str(iPtPair), dc)
+        
+        # Draw single point from currently being made calibration point
+        if self.newCalibPt[1]:
+            self.DrawCalibPoint(self.RefM2Pix(self.newCalibPt[1]), "", dc)
+        
+        # Draw markers
+        dc.SetBrush(wx.Brush(wx.Colour(255, 255, 255, 128), wx.SOLID))
+        dc.SetPen(wx.Pen(wx.Colour(0, 0, 0, 125), 1, wx.SOLID))
+        for pt in self.markerPoses:
+            ptPix = self.RefM2Pix(pt)
+            dc.DrawCircle(ptPix[0], ptPix[1], 4)
+        
+        dc.EndDrawing()
+    
+    def RedrawVicon(self):
+        # TODO: Redraw saved image of background since it is faster and 
+        #       vicon needs to be redrawn at a high frequency
+        self.RedrawRef()
+    
+    def DrawBackgroundImage(self, dc):
+        """Draw the background image on the reference canvas."""
+        # Rescale image to make sense with current pan/zoom point
+        xPix, yPix = self.RefM2Pix(self.backgroundPosition[0])
+        newWidth = int(self.backgroundPosition[1].x / self.refScale.x)
+        newHeight = -int(self.backgroundPosition[1].y / self.refScale.y)
+        if newHeight > 0 and newWidth > 0:
+            image = self.backgroundImage.Scale(newWidth, newHeight)
+            bitmap = wx.BitmapFromImage(image)
+            
+            # Draw image
+            dc.DrawBitmap(bitmap, xPix, yPix, False)
+            
+            # Draw selection handles
+            if self.backgroundIsSelected:
+                xPix, yPix = self.RefM2Pix(self.backgroundPosition[0])
+                newWidth = int(self.backgroundPosition[1].x / \
+                    self.refScale.x)
+                newHeight = -int(self.backgroundPosition[1].y / \
+                    self.refScale.y)
+                if newWidth > 0 and newHeight > 0:
+                    dc.SetBrush(wx.Brush(wx.Colour(255, 255, 255), wx.SOLID))
+                    dc.DrawCircle(xPix, yPix, 5)
+                    dc.DrawCircle(xPix + newWidth, yPix, 5)
+                    dc.DrawCircle(xPix + newWidth, yPix + newHeight, 5)
+                    dc.DrawCircle(xPix, yPix + newHeight, 5)
+    
+    def DrawGrid(self, dc):
+        """Draw the axes and grid on the reference canvas.
+
+        dc - Device context used for drawing on the reference panel.
+        """
+        # Draw background gridlines
+        colLim, rowLim = self.ref.GetSize()
+        dc.SetPen(wx.Pen(wx.Colour(220, 220, 220), 1, wx.SOLID))
+        start = self.RefPix2M((0, 0))
+        finish = self.RefPix2M((colLim, rowLim))
+        for x in range(int(start.x) - 1, int(finish.x) + 1):
+            xPix = int((x - self.refOffset.x) / self.refScale.x)
+            dc.DrawLine(xPix, 0, xPix, rowLim)
+        for y in range(int(start.y) + 1, int(finish.y) - 1, -1):
+            yPix = int((y - self.refOffset.y) / self.refScale.y)
+            dc.DrawLine(0, yPix, colLim, yPix)
+        
+        # Draw axes
+        dc.SetPen(wx.Pen(wx.Colour(0, 0, 0), 1, wx.SOLID))
+        xPixOff = int(-self.refOffset.x / self.refScale.x)
+        yPixOff = int(-self.refOffset.y / self.refScale.y)
+        dc.DrawLine(0, yPixOff, colLim, yPixOff)
+        dc.DrawLine(xPixOff, 0, xPixOff, rowLim)
+    
+    def DrawRegion(self, region, dc):
+        """Draw a single region.
+
+        region - Instance of Region class, contains information about the region.
+        dc - Device context used for drawing on the panel.
+        """
+        # Set brush to region color
+        isBoundary = region.name.lower() == "boundary"
+        if isBoundary:
+            dc.SetBrush(wx.Brush(region.color, wx.TRANSPARENT))
+            dc.SetPen(wx.Pen(wx.BLACK, 3, wx.SOLID))
+        elif region.isObstacle:
+            obstColor = wx.Colour(region.color.Red() / 10, \
+                region.color.Green() / 10, region.color.Blue() / 10, 128)
+            dc.SetBrush(wx.Brush(obstColor, wx.SOLID))
+            dc.SetPen(wx.Pen(region.color, 1, wx.SOLID))
+        else:
+            innerColor = wx.Colour(region.color.Red(), region.color.Green(), \
+                region.color.Blue(), 128)
+            dc.SetBrush(wx.Brush(innerColor, wx.SOLID))
+            dc.SetPen(wx.Pen(region.color, 1, wx.SOLID))
+        dc.SetTextForeground(wx.BLACK)
+        dc.SetBackgroundMode(wx.TRANSPARENT)
+        dc.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.NORMAL, wx.BOLD, False))
+        
+        # Set up label
+        if region.isObstacle:
+            labelText = "(%s)" % region.name
+        else:
+            labelText = region.name
+        labelWidth, labelHeight = dc.GetTextExtent(labelText)
+        
+        # Draw region
+        vertsPix = []
+        xLabelPix = 0
+        yLabelPix = 0
+        for vert in region.pointArray:
+            vertPix = self.MapM2Pix(vert)
+            vertsPix.append(vertPix)
+            if not isBoundary:          # Put label in center
+                xLabelPix += vertPix[0]
+                yLabelPix += vertPix[1]
+            else:                       # Put label in lower right corner
+                xLabelPix = max(xLabelPix, vertPix[0])
+                yLabelPix = max(yLabelPix, vertPix[1])
+        dc.DrawPolygon(vertsPix)
+        if isBoundary:
+            xLabelPix = xLabelPix - labelWidth
+        else:
+            xLabelPix = xLabelPix / len(region.pointArray) - labelWidth / 2
+            yLabelPix = yLabelPix / len(region.pointArray) - labelHeight / 2
+        
+        # Draw label
+        if not isBoundary:
+            dc.SetBrush(wx.Brush(region.color, wx.SOLID))
+            dc.DrawRoundedRectangle(xLabelPix - 5, yLabelPix - 3, \
+                labelWidth + 10, labelHeight + 6, 3)
+        dc.DrawText(labelText, xLabelPix, yLabelPix)
+    
+    def DrawCalibPoint(self, ptPix, label, dc):
+        """Draw a single calibration point.
+        
+        ptPix - Point to draw with coordinates in pixels
+        label - String to label point with - usually point index
+                If label is empty, point will be drawn in a differnt color
+        dc - Device context that allows for drawing
+        """
+        # Draw circle
+        radius = 5
+        if label:
+            innerColor = wx.RED
+        else:
+            innerColor = wx.GREEN
+        dc.SetBrush(wx.Brush(innerColor, wx.SOLID))
+        dc.SetPen(wx.Pen(wx.BLACK, 1, wx.SOLID))
+        dc.DrawCircle(ptPix[0], ptPix[1], radius)
+        
+        # Draw label
+        if label:
+            dc.SetTextForeground(wx.BLACK)
+            dc.SetBackgroundMode(wx.TRANSPARENT)
+            dc.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.NORMAL, wx.BOLD, False))
+            labelWidth, labelHeight = dc.GetTextExtent(label)
+            xLabelPix = ptPix[0] - radius
+            yLabelPix = ptPix[1] - radius
+            dc.DrawText(label, xLabelPix, yLabelPix)
+    
+    def ResetToggles(self, toggleKeep=None):
+        """Unpress toggle buttons except that specified. Reset calibration
+        point creation. Redraw the panels.
+        
+        toggleKeep - Toggle button to retain the value of
+        """
+        # Reset toggles
+        if self.toggleStates['addPoint'] and toggleKeep != 'addPoint':
+            self.toggleStates['addPoint'] = False
+            self.toggleAddPoint.SetBitmapLabel(self.buttonBitmaps['addPoint'])
+        if self.toggleStates['deletePoint'] and toggleKeep != 'deletePoint':
+            self.toggleStates['deletePoint'] = False
+            self.toggleDeletePoint.SetBitmapLabel( \
+                self.buttonBitmaps['deletePoint'])
+        if self.toggleStates['dimen'] and toggleKeep != 'dimen':
+            self.toggleStates['dimen'] = False
+            self.menuShowMarkers.Check(False)
+            self.toggleDim.SetBitmapLabel(self.buttonBitmaps['dimen'])
+        
+        # Reset partial calibration point creation
+        self.newCalibPt = [None, None]
+        
+        # Reset dimensioning of image
+        self.dimenPoint = None
+        
+        # Redraw the map and reference panels
+        self.Redraw()
+    
+    def GetBoundingBox(self):
+        xmin = min([pt.x for region in self.regions for pt in region.pointArray])
+        ymin = min([pt.y for region in self.regions for pt in region.pointArray])
+        xmax = max([pt.x for region in self.regions for pt in region.pointArray])
+        ymax = max([pt.y for region in self.regions for pt in region.pointArray])
+
+        return (xmin, xmax, ymin, ymax)
+    
+    def SnapPointMap(self, pt):
+        """Snap the point to the closest calibration point, region vertex, or
+        region edge from the map panel.
+        
+        pt - Point to snap in absolute coordinates
+        returns - (snappedPt, idxCalibPt, idxReg)
+            snappedPt - Point after snapping, in absolute coordinates
+            idxCalibPt - Index of snapped-to calibration point
+                       (-1 if not snapped to calibration point)
+            idxReg - Index of region snapped-to (-1 if not snapped to region)
+        """
+        # Check calibration points first
+        snapped = False
+        pt, idxCalibPt, snapped = \
+            self.SnapCalibPoints(pt, 0, snapped=snapped)
+        
+        # Check regions next
+        pt, idxReg, idxRPoint, idxREdge, snapped = \
+            self.SnapRegions(pt, snapped=snapped)
+        
+        return pt, idxCalibPt, idxReg
+    
+    def SnapPointRef(self, pt):
+        """Snap the point to the closest calibration point or marker from the
+        reference panel.
+        
+        pt - Point to snap in absolute coordinates
+        returns - (snappedPt, iCalibPt, iReg)
+            snappedPt - Point after snapping, in absolute coordinates
+            idxCalibPt - Index of snapped-to calibration point
+                       (-1 if not snapped to calibration point)
+        """
+        # Check calibration points first
+        snapped = False
+        pt, idxCalibPt, snapped = \
+            self.SnapCalibPoints(pt, 1, snapped=snapped)
+        
+        # Check marker points next
+        pt, snapped = self.SnapVicon(pt, snapped=snapped)
+        
+        return pt, idxCalibPt
+    
+    def SnapCalibPoints(self, pt, idxPanel, snapped=False):
+        """Snap the point to the first sufficiently close calibration point in
+        the specified panel.
+        
+        pt - Point to be snapped in absolute coordinates
+        idxPanel - 0 indicating map panel, 1 indicating reference panel
+        snapped - Boolean, whether point has been snapped already
+                  If snapped was true in input, then function will immediately
+                  return, setting the same value to the output snapped
+        returns - (snappedPt, idxCalibPt, snapped)
+            snappedPt - Point after snapping, in absolute coordinates
+            idxCalibPt - Index of snapped-to calibration point
+                         (-1 if not snapped to calibration point)
+            snapped - Boolean indicating if the point has ever been snapped
+        """
+        # Set tolerance in absolute coordinates
+        if idxPanel == 0:
+            tol = self.mapTolerance
+        else:
+            tol = self.refTolerance
+        
+        # Check through all calibration points until snapping
+        idxCalibPt = -1
+        iCPt = len(self.calibPoints) - 1
+        while not snapped and iCPt > -1:
+            if pt.Dist(self.calibPoints[iCPt][idxPanel]) < tol:
+                pt = self.calibPoints[iCPt][idxPanel]
+                idxCalibPt = iCPt
+                snapped = True
+            iCPt -= 1
+        
+        return copy.copy(pt), idxCalibPt, snapped
+    
+    def SnapVicon(self, pt, snapped=False):
+        """Snap the given point to any sufficiently close marker point.
+        
+        pt - Point to be snapped, in absolute coordinates
+        snapped - Boolean, indicates if point has already been snapped
+                  If snapped was true in input, then function will immediately
+                  return, setting the same value to the output snapped
+        returns - (snappedPt, snapped)
+            snappedPt - Point after snapping
+            snapped - Boolean, indicates if point has ever been snapped
+        """
+        # Check all points until snapped
+        iVPt = 0
+        while not snapped and iVPt < len(self.markerPoses):
+            if pt.Dist(self.markerPoses[iVPt]) < self.refTolerance:
+                pt = copy.copy(self.markerPoses[iVPt])
+                snapped = True
+            iVPt += 1
+        
+        return copy.copy(pt), snapped
+    
+    def SnapRegions(self, pt, snapped=False):
+        """Snap the point to any sufficiently "nearby" region vertex or wall.
+
+        pt - Point object, map coordinates of point
+        snapped - Boolean, true if point has snapped already, false if not
+                  If point is already snapped, this function will just return
+        returns -
+            A single tuple will be returned:
+            (snappedPt, idxRegion, idxRPoint, idxREdge, snapped)
+                snappedPt - Point object, point after snapping
+                idxRegion - int, index of region if snapped to region point/edge
+                            if not snapped to region it will be -1
+                idxRPoint - int, index of point in region.pointArray if snapped to point
+                            if not snapped to point it will be -1
+                idxREdge - int, index of side in region if snapped to edge
+                           edge j is defined by region.pointArray[j:j+1]
+                           if not snapped to edge it will be -1
+                snapped - Boolean, true if point has been snapped, false if not
+                          Note that if input snapped is true, output will be true
+                          even if the point did not snap to a region point or edge
+        """
+        # Initialize output
+        idxRegion = -1
+        idxRPoint = -1
+        idxREdge = -1
+        
+        # Check through regions
+        i = len(self.regions) - 1   # Region decrementer
+        while (not snapped) and i >= 0:
+            pt, idxRPoint, idxREdge, snapped = \
+                self.Snap1Region(self.regions[i], pt, snapped=snapped)
+            if idxRPoint != -1 or idxREdge != -1:
+                idxRegion = i
+            i -= 1
+        
+        return pt, idxRegion, idxRPoint, idxREdge, snapped
+    
+    def Snap1Region(self, region, pt, snapped=False):
+        """Snap the point to any sufficiently "nearby" region vertex or wall
+        in the specified region.
+        
+        region - Region object, region of interest
+        pt - Point object, map coordinates of point
+        snapped - Boolean, true is point has snapped already, false if not
+                  If point is already snapped, this function will just return
+        returns - (snappedPt, idxRPoint, idxREdge, snapped)
+            snappedPt - Point object, point after snapping
+            idxRPoint - int, index of point in region.pointArray if snapped to point
+                        if not snapped to point it will be -1
+            idxREdge - int, index of side in region if snapped to edge
+                       edge j is defined by region.pointArray[j:j+1]
+                       if not snapped to edge it will be -1
+            snapped - Boolean, true if point has been snapped, false if not
+                      Note that if input snapped is true, output will be true
+                      even if the point did not snap to a region point or edge
+        """
+        idxRPoint = -1
+        idxREdge = -1
+        # Check first point
+        chkPt = region.pointArray[0]
+        if (not snapped) and pt.Dist(chkPt) < self.mapTolerance:
+            pt = chkPt
+            snapped = True
+            idxRPoint = 0
+        j = 1   # Region point incrementer
+        while (not snapped) and j < len(region.pointArray):
+            # Check next point
+            chkPt = region.pointArray[j]
+            if pt.Dist(chkPt) < self.mapTolerance:
+                pt = chkPt
+                snapped = True
+                idxRPoint = j
+            # Check edge between previous and just-checked point
+            else:
+                p0 = region.pointArray[j - 1]
+                p1 = chkPt
+                chkPt = self.ProjPtOnLine(pt, p0, p1)
+                # Check that projected point is on finite line and close
+                if pt.Dist(chkPt) < self.mapTolerance and \
+                        chkPt.x <= max(p0.x, p1.x) and \
+                        chkPt.x >= min(p0.x, p1.x) and \
+                        chkPt.y <= max(p0.y, p1.y) and \
+                        chkPt.y >= min(p0.y, p1.y):
+                    pt = chkPt
+                    snapped = True
+                    idxREdge = j - 1
+            j += 1
+        # Check last edge
+        if not snapped:
+            p0 = region.pointArray[j - 1]
+            p1 = region.pointArray[0]
+            chkPt = self.ProjPtOnLine(pt, p0, p1)
+            if pt.Dist(chkPt) < self.mapTolerance and \
+                    chkPt.x <= max(p0.x, p1.x) and \
+                    chkPt.x >= min(p0.x, p1.x) and \
+                    chkPt.y <= max(p0.y, p1.y) and \
+                    chkPt.y >= min(p0.y, p1.y):
+                pt = chkPt
+                snapped = True
+                idxREdge = j - 1
+        
+        return copy.copy(pt), idxRPoint, idxREdge, snapped
+    
+    def InsideBackgroundImage(self, pt):
+        """Indicates if the given point was clicked inside the background image.
+        
+        Returns a boolean.
+        """
+        return self.backgroundImage and \
+            pt.x > self.backgroundPosition[0].x and \
+            pt.x < self.backgroundPosition[0].x + \
+            self.backgroundPosition[1].x and \
+            pt.y < self.backgroundPosition[0].y and \
+            pt.y > self.backgroundPosition[0].y - \
+            self.backgroundPosition[1].y
+    
+    def MapM2Pix(self, pose):
+        """Convert from absolute (meter) coordinates to pixel coordinates for
+        the map panel.
+        
+        pose - Point, absolute coordinates of point
+        returns - Tuple, pixel coordinates in canvas panel (col, row)
+        """
+        col = int((pose.x - self.mapOffset.x) / self.mapScale.x)
+        row = int((pose.y - self.mapOffset.y) / self.mapScale.y)
+        return (col, row)
+    
+    def MapPix2M(self, pixPose):
+        """Convert from pixel coordinates to absolute (meter) coordinates for
+        the map panel.
+        
+        pixPose - Tuple, pixel coordinates in canvas panel (col, row)
+        returns - Point, absolute coordinates of point
+        """
+        x = float(pixPose[0]) * self.mapScale.x + self.mapOffset.x
+        y = float(pixPose[1]) * self.mapScale.y + self.mapOffset.y
+        return Point(x, y)
+    
+    def RefM2Pix(self, pose):
+        """Convert from absolute (meter) coordinates to pixel coordinates for
+        the reference panel.
+        
+        pose - Point, absolute coordinates of point
+        returns - Tuple, pixel coordinates in canvas panel (col, row)
+        """
+        col = int((pose.x - self.refOffset.x) / self.refScale.x)
+        row = int((pose.y - self.refOffset.y) / self.refScale.y)
+        return (col, row)
+    
+    def RefPix2M(self, pixPose):
+        """Convert from pixel coordinates to absolute (meter) coordinates for
+        the reference panel.
+        
+        pixPose - Tuple, pixel coordinates in canvas panel (col, row)
+        returns - Point, absolute coordinates of point
+        """
+        x = float(pixPose[0]) * self.refScale.x + self.refOffset.x
+        y = float(pixPose[1]) * self.refScale.y + self.refOffset.y
+        return Point(x, y)
+    
+    def ProjPtOnLine(self, pt, p0, p1):
+        """Find the projection of a point on an infinite line.
+
+        pt - Point object, point to be projected.
+        p1 - Point object, one endpoint of line.
+        p2 - Point object, other endpoint of line.
+        returns - Point object, projected point on line.
+        """
+        s = p1 - p0                     # Vector to project on (p0 is origin)
+        v = pt - p0                     # Vector to point to project
+        u = (v.Dot(s) / s.Dot(s)) * s   # Projected vector
+        return p0 + u                   # Map back to global coordinates
+    
+    def GetLtlmopRoot(self, thisFile):
+        """Return a string of the absolute path to the project root directory.
+        
+        thisFile - String with the path to this file, should be found using
+                   sys.argv[0]
+        """
+        p = os.path.abspath(thisFile)
+        t = ""
+        while t != "src":
+            (p, t) = os.path.split(p)
+            if p == "":
+                return None
+
+        return os.path.join(p, "src")
+    # end of class CalibrationFrame
+
 
 if __name__ == "__main__":
-    calibrate = CalibrateApp(0)
-    calibrate.MainLoop()
+    calib = CalibrateHelper()
+    calib.doCalibration()
