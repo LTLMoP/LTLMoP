@@ -58,8 +58,8 @@ class basicSimulator:
                 self.setVel_called=False
             else:
                 self.pose[0:2] = self.pose[0:2]+array([0.0,0.0])*(self.timer_func()-self.time)
-            time.sleep(0.1)
             self.time = self.timer_func()
+            time.sleep(0.1)
 
     def getPose(self):
         """
