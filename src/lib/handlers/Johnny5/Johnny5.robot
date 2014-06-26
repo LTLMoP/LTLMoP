@@ -17,7 +17,7 @@ MotionControlHandler: # Robot default motion control handler with default argume
 share.MotionControl.VectorControllerHandler()
 
 PoseHandler: # Robot default pose handler with default argument values
-share.Pose.ViconPoseHandler(host="10.0.0.102",port=800,x_VICON_name="Johnny5-fixed:Johnny5 <t-X>",y_VICON_name="Johnny5-fixed:Johnny5 <t-Y>",theta_VICON_name="Johnny5-fixed:Johnny5 <a-Z>")
+share.Pose.ViconPoseHandler(host="10.0.0.102",port=800,x_VICON_name="Johnny5:Johnny5 <t-X>",y_VICON_name="Johnny5:Johnny5 <t-Y>",theta_VICON_name="Johnny5:Johnny5 <a-Z>")
 
 SensorHandler: # Robot default sensor handler with default argument values
 Johnny5.Johnny5SensorHandler()
