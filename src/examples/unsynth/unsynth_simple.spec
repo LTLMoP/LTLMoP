@@ -13,9 +13,11 @@ extinguish, 0
 CompileOptions:
 convexify: True
 parser: structured
+symbolic: False
+use_region_bit_encoding: True
+synthesizer: jtlv
 fastslow: False
 decompose: True
-use_region_bit_encoding: True
 
 Customs: # List of custom propositions
 carrying_item
@@ -51,6 +53,7 @@ Spec: # Specification in structured English
 Env starts with false
 Robot starts in deck
 Always porch
+Always drop
 
 ##Environment safety unsatisfiable -- single step
 #Env starts with false

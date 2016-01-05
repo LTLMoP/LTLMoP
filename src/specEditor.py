@@ -1438,7 +1438,7 @@ class SpecEditorFrame(wx.Frame):
 
         self.appendLog("Initial analysis complete.\n\n", "BLUE")
 
-        if (not realizable or not nonTrivial) and self.unsat:
+        if (not realizable or not nonTrivial):
             self.appendLog("Further analysis is possible.\n", "BLUE")
             self.analysisDialog.button_refine.Enable(True)
             self.analysisDialog.button_refine.SetLabel("Refine analysis...")
@@ -1455,6 +1455,16 @@ class SpecEditorFrame(wx.Frame):
         guilty = self.compiler._coreFinding(self.to_highlight, self.unsat, self.badInit)
 
         self.highlightCores(guilty, self.compiler)
+        
+        if not self.unsat:
+            to_highlight = self.compiler._iterateCores()
+        
+            #highlight guilty transitions
+            if self.proj.compile_options["parser"] == "structured":
+                for h_item in to_highlight:
+                    tb_key = h_item[0].title() + h_item[1].title()
+                    if h_item[2] < len(self.tracebackTree[tb_key]):
+                        self.text_ctrl_spec.MarkerAdd(self.tracebackTree[tb_key][h_item[2]]-1, MARKER_INIT)
 
         self.appendLog("Final analysis complete.\n", "BLUE")
 
@@ -1464,8 +1474,10 @@ class SpecEditorFrame(wx.Frame):
 
     def highlightCores(self, guilty, compiler):
         if self.proj.compile_options["parser"] == "structured":
-            print guilty
             if guilty is not None:
+                #highlight system initial condition
+                for l in self.tracebackTree['SysInit']:
+                    self.highlight(l, "init")
                 #look up the line number corresponding to each guilty LTL formula
                 for k,v in compiler.LTL2SpecLineNumber.iteritems():
                     newCs = k.replace("\t","\n").split('\n')
@@ -1487,7 +1499,6 @@ class SpecEditorFrame(wx.Frame):
                     else:
                         print "WARNING: LTL fragment {!r} not found in spec->LTL mapping".format(canonical_ltl_frag)
 
-            print guilty_clean
             # Add SLURP to path for import
             p = os.path.dirname(os.path.abspath(__file__))
             sys.path.append(os.path.join(p, "..", "etc", "SLURP"))

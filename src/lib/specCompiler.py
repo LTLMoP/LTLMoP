@@ -16,6 +16,7 @@ import parseLP
 from createJTLVinput import createLTLfile, createSMVfile, createTopologyFragment, createInitialRegionFragment
 from parseEnglishToLTL import bitEncoding, replaceRegionName, createStayFormula
 import fsa
+import strategy
 from copy import deepcopy
 from cores.coreUtils import *
 import handlerSubsystem
@@ -503,7 +504,7 @@ class SpecCompiler(object):
 
         return cmd
 
-    def _getGROneCommand(self, module):
+    def _getGROneCommand(self, module, refine=False):
         jtlv_path = os.path.join(self.proj.ltlmop_root, "etc", "jtlv")
 
         # Check that GROneMain, etc. is compiled
@@ -518,7 +519,11 @@ class SpecCompiler(object):
                                 os.path.join(jtlv_path, "GROne")])
 
         cmd = ["java", "-ea", "-Xmx512m", "-cp", classpath, module, self.proj.getFilenamePrefix() + ".smv", self.proj.getFilenamePrefix() + ".ltl"]
-
+        
+        
+        if refine:
+            cmd += ["true"]
+            
         return cmd
 
     def _autIsNonTrivial(self):
@@ -570,7 +575,7 @@ class SpecCompiler(object):
                 nonTrivial = self._autIsNonTrivial()
                 if nonTrivial:
                     break
-
+        
             ### Highlight sentences corresponding to identified errors ###
 
             # System unsatisfiability
@@ -630,6 +635,8 @@ class SpecCompiler(object):
                 unsat = True
 
         subp.stdout.close()
+        
+        #print "OUTPUT",output
 
 
 
@@ -640,62 +647,78 @@ class SpecCompiler(object):
     def _coreFinding(self, to_highlight, unsat, badInit):
         #returns list of formulas that cause unsatisfiability/unrealizability (based on unsat flag).
         #takes as input sentences marked for highlighting, and formula describing bad initial states
-        #from JTLV.
+        #from synthesis engine.
 
-        #find number of states in automaton/counter for unsat/unreal core max unrolling depth ("recurrence diameter")
         proj_copy = deepcopy(self.proj)
         proj_copy.rfi = self.parser.proj.rfi
         proj_copy.sensor_handler = None
         proj_copy.actuator_handler = None
         proj_copy.h_instance = None
 
-        num_bits = int(numpy.ceil(numpy.log2(len(self.parser.proj.rfi.regions))))  # Number of bits necessary to encode all regions
-        region_props = ["bit" + str(n) for n in xrange(num_bits)]
+        if self.proj.compile_options["decompose"]:
+            regions = self.parser.proj.rfi.regions
+        else:
+            regions = self.proj.rfi.regions
 
-        aut = fsa.Automaton(proj_copy)
-        aut.loadFile(self.proj.getFilenamePrefix()+".aut", self.proj.enabled_actuators + self.proj.all_customs + region_props, self.proj.enabled_sensors, [])
-
+        region_domain = strategy.Domain("region", regions, strategy.Domain.B0_IS_MSB)
+        strat = strategy.createStrategyFromFile(self.proj.getStrategyFilename(),
+                                                self.proj.enabled_actuators + self.proj.all_customs + [region_domain],
+                                                self.proj.enabled_sensors)
 
         #find deadlocked states in the automaton (states with no out-transitions)
-        deadStates = [s for s in aut.states if not s.transitions]
+        deadStates = [s for s in strat.states if not strat.findTransitionableStates({}, from_state = s)]
+        
         #find states that can be forced by the environment into the deadlocked set
-        forceDeadStates = [(s, e) for s in aut.states for e in deadStates if e in s.transitions]
+        forceDeadStates = [(s, e) for s in strat.states for e in deadStates if e in strat.findTransitionableStates({}, from_state = s)]
+        
         #LTL representation of these states and the deadlock-causing environment move in the next time step
-        forceDeadlockLTL = map(lambda (s,e): " & ".join([stateToLTL(s), stateToLTL(e, 1, 1, True)]), forceDeadStates)
+        forceDeadlockLTL = map(lambda (s,e): " & ".join([s.getLTLRepresentation(swap_players=True), e.getLTLRepresentation(use_next=True, include_inputs=False, swap_players=True)]), forceDeadStates)
 
-
-        #find livelocked goal and corresponding one-step propositional formula (by stripping LTL operators)
+        #find livelocked goal and corresponding one-step propositional formula from spec (by stripping LTL operators)
         desiredGoal = [h_item[2] for h_item in to_highlight if h_item[1] == "goals"]
-
 
         if desiredGoal:
             desiredGoal = desiredGoal[0]
-            #Don't actually need LTL
-            #desiredGoalLTL = stripLTLLine(self.ltlConjunctsFromBadLines([h_item for h_item in to_highlight if h_item[1] == "goals"], False)[0],True)
-
-
-
+        
+        
         def preventsDesiredGoal(s):
-                rank_str = s.transitions[0].rank
-                m = re.search(r"\(\d+,(-?\d+)\)", rank_str)
-                if m is None:
-                    logging.error("Error parsing jx in automaton.  Are you sure the spec is unrealizable?")
-                    return
-                jx = int(m.group(1))
-                return (jx == desiredGoal)
+            #find states in the counterstrategy that prevent to desired goal (as indicated by the second component of the 'rank')
+            rank_str = strat.findTransitionableStates({}, from_state = s)[0].goal_id #originally rank
+            m = re.search(r"\(\d+,(-?\d+)\)", rank_str)
+            if m is None:
+                logging.error("Error parsing jx in automaton.  Are you sure the spec is unrealizable?")
+                return
+            jx = int(m.group(1))
+            return (jx == desiredGoal)
 
-
-        #find livelocked states in the automaton (states with desired sys rank)
-        livelockedStates = filter(preventsDesiredGoal, [s for s in aut.states if s.transitions])
-        #find states that can be forced by the environment into the livelocked set
-        forceLivelockedStates = [(fro, to) for fro in aut.states for to in livelockedStates if to in s.transitions]
-
-        #LTL representation of these states and the livelocked goal
-        #forceLivelockLTL = map(lambda s: " & ".join([stateToLTL(s), desiredGoalLTL]), livelockedStates) ###Don't actually need to add goal -- will be added in 'conjuncts'
-        forceLivelockLTL = map(lambda (s1,s2): " & ".join([stateToLTL(s1, 1, 1), stateToLTL(s2, 1, 0, True)]), forceLivelockedStates)
-        #forceLivelockLTL = map(stateToLTL, livelockedStates)
-
-        numStates = len(aut.states)
+        def sublistExists(list1, list2):
+            #checks if list1 is a sublist of list2
+            return ''.join(map(str, list2)) in ''.join(map(str, list1))
+        
+        desiredGoalSCCs = [(s,t) for s in strat.states for t in strat.findTransitionableStates({}, from_state = s) if preventsDesiredGoal(s) and preventsDesiredGoal(t)]
+            
+        counterTraces = True
+        
+        # IDENTIFY COUNTERTRACES       
+        for (s,t) in desiredGoalSCCs:
+            if [(s2,t2) for (s2,t2) in desiredGoalSCCs if s2==s and t2!=t]:
+                counterTraces = False
+        
+        
+        if counterTraces:
+            cycles = strat.findAllCycles()
+            desiredGoalCycles = [c for c in cycles if all(map(preventsDesiredGoal, c))]
+            #desiredGoalCycles = [c for c in desiredGoalCycles if not any(map(lambda x: sublistExists(x, c), [x for x in desiredGoalCycles if x!=c]))]
+            #forceLivelockLTL = [[fro]+c[0:4] for c in desiredGoalCycles for fro in aut.states for to in c if (to in fro.transitions and fro not in c)]
+        
+        #else:
+            #desiredGoalSCCs = [(s,t) for s in strat.states for t in strat.findTransitionableStates({}, from_state = s) if preventsDesiredGoal(s) and preventsDesiredGoal(t)]
+            #print [s.getName()+t.getName() for (s,t) in desiredGoalSCCs]
+        
+        
+        #size of counterstrategy and number of regions
+        #useful for determininig a good unroll depth
+        numStates = len(strat.states)
         numRegions = len(self.parser.proj.rfi.regions)
 
         if forceDeadlockLTL:
@@ -703,8 +726,8 @@ class SpecCompiler(object):
             badStatesLTL = forceDeadlockLTL
         else:
             #this means livelock
-            deadlockFlag = False
-            badStatesLTL = forceLivelockLTL
+            deadlockFlag = False     
+            badStatesLTL = badInit
 
         #################################
         #                               #
@@ -718,7 +741,6 @@ class SpecCompiler(object):
 
         #have to use all initial conditions if no single bad initial state given
         useInitFlag = badInit is None
-
         #other highlighted LTL formulas
         conjuncts = self.ltlConjunctsFromBadLines(to_highlight, useInitFlag)
 
@@ -726,47 +748,61 @@ class SpecCompiler(object):
         #self.propList = [p for p in self.propList if [c for c in conjuncts if p in c] or [c for c in badStatesLTL if p in c and not unsat] or p in topo]
 
         cmd = self._getPicosatCommand()
+       
+        cyc_enc = True 
 
         if unsat:
-            guilty = self.unsatCores(cmd, topo,badInit,conjuncts,15,15)#returns LTL
+            guilty = self.unsatCores(cmd, topo,badInit,conjuncts,10,1)#returns LTL conjuncts
         else:
-            guilty = self.unrealCores(cmd, topo, badStatesLTL, conjuncts, deadlockFlag)#returns LTL
+            if counterTraces:
+                guilty = self.unrealCores(cmd, topo, badInit, badStatesLTL, conjuncts, deadlockFlag, desiredGoalCycles,counterTraces,cyc_enc)#returns LTL conjuncts   
+            else:
+                return []
+                #guilty = self.unrealCores(cmd, topo, badInit, badStatesLTL, conjuncts, deadlockFlag, desiredGoalSCCs)#returns LTL conjuncts   
+        
         return guilty
 
 
-
-
-    def unsatCores(self, cmd, topo, badInit, conjuncts,maxDepth,numRegions):
+    def unsatCores(self, cmd, topo, badInit, conjuncts,maxDepth,initDepth):
         #returns list of guilty LTL formulas
         #takes LTL formulas for topo, badInit and conjuncts separately because they are used in various combinations later
-        #numStates and numRegions are used to determine unroll depth later
-
+       
         if not conjuncts and badInit == "":
             #this means that the topology is unsatisfiable by itself (not common since we auto-generate)
             return topo
         else:
             #try the different cases of unsatisfiability (need to pass in command and proplist to coreUtils function)
-            self.trans, guilty = unsatCoreCases(cmd, self.propList, topo, badInit, conjuncts,maxDepth,numRegions)
+            self.trans, guilty = unsatCoreCases(cmd, self.propList, topo, badInit, conjuncts,maxDepth,initDepth)
 
         return guilty
 
 
 
-    def unrealCores(self, cmd, topo, badStatesLTL, conjuncts, deadlockFlag):
+    def unrealCores(self, cmd, topo, badInit, badStatesLTL, conjuncts, deadlockFlag, aux, counterTraces=False, cyc_enc=True):
         #returns list of guilty LTL formulas FOR THE UNREALIZABLE CASE
         #takes LTL formulas representing the topology and other highlighted conjuncts as in the unsat case.
-        #also takes a list of deadlocked/livelocked states (as LTL/propositional formulas)
+        #also takes LTL representation of deadlocked/livelocked states ('badStatesLTL)        
         #returns LTL formulas that appear in the guilty set for *any* deadlocked or livelocked state,
         #i.e. formulas that cause deadlock/livelock in these states
 
-        #try the different cases of unsatisfiability (need to pass in command and proplist to coreUtils function)
         if deadlockFlag:
             initDepth = 1
-            maxDepth = 1
+            maxDepth = 10
         else:
             initDepth = 1
-            maxDepth = 1
-
+            #initDepth = max([len(c) for c in cycles])
+            maxDepth = 10
+            if counterTraces:
+                allCycles = map(lambda (i,x): stateCycleToCNFs(i,x, self.propList, maxDepth, cyc_enc), enumerate(aux))
+                if cyc_enc:
+                    extra = [item for sublist1 in allCycles for sublist2 in sublist1 for item in sublist2]
+                    extra = extra + [' '.join(["cycle"+str(i) for i in range(0,len(aux))]+["0\n"])]
+                else:
+                    extra = allCycles
+            else:
+                extra = unwindSCCs(aux, self.propList, maxDepth)
+        
+        
 #        TODO: see if there is a way to call pool.map with processes that also use pools
 #
 #        sys.stdout = StringIO.StringIO()
@@ -777,10 +813,21 @@ class SpecCompiler(object):
 #
 #        sys.stdout = sys.__stdout__
 
-        guiltyList = map(lambda d: unsatCoreCases(cmd, self.propList, topo, d, conjuncts, initDepth, maxDepth), badStatesLTL)
-
+        if deadlockFlag:
+            guiltyList = map(lambda d: unsatCoreCases(cmd, self.propList, topo, d, conjuncts, maxDepth, initDepth), badStatesLTL)
+        else:
+            if counterTraces:
+                if cyc_enc:
+                    guiltyList = [unsatCoreCases(cmd, self.propList, topo, '', conjuncts, maxDepth, initDepth, extra)]       
+                else:
+                    guiltyList = map(lambda c: unsatCoreCases(cmd, self.propList, topo, c[1], conjuncts, maxDepth, c[2], c[0], cyc_enc), zip(extra, [cyc[0].getLTLRepresentation(swap_players=True) for cyc in aux], [len(c) for c in aux]))
+                
+            else:
+                #guiltyList = map(lambda c: unsatCoreCases(cmd, self.propList, topo, '', conjuncts, maxDepth, initDepth, extra))
+                guiltyList = [unsatCoreCases(cmd, self.propList, topo, '', conjuncts, maxDepth, initDepth, extra)]
+         
         guilty = reduce(set.union,map(set,[g for t, g in guiltyList]))
-
+        
         return guilty
 
 
@@ -789,7 +836,6 @@ class SpecCompiler(object):
 
     def _getPicosatCommand(self):
         # look for picosat
-
         paths = [p for p in glob.glob(os.path.join(self.proj.ltlmop_root,"lib","cores","picosat-*")) if os.path.isdir(p)]
         if len(paths) == 0:
             logging.error("Where is your sat solver? We use Picosat.")
@@ -802,7 +848,7 @@ class SpecCompiler(object):
             cmd = os.path.join(paths[0],"picomus.exe")
         else:
             cmd = [os.path.join(paths[0],"picomus")]
-
+            
         return cmd
 
 
@@ -810,9 +856,8 @@ class SpecCompiler(object):
 
 
     def ltlConjunctsFromBadLines(self, to_highlight, useInitFlag):
-        #given the lines to be highlighted by the initial analysis, returns
-        #a list of LTL formulas that, when conjuncted, cause unsatisfiability
-        #topology conjuncts are separated out
+        #given the lines to be highlighted by the initial analysis in _analyze(),
+        #returns a list of LTL formulas that, when conjuncted, cause unsatisfiability
 
         conjuncts = []
 
@@ -823,10 +868,8 @@ class SpecCompiler(object):
             if h_item[1] == "goals":
                 #special treatment for goals: (1) we already know which one to highlight, and (2) we need to check both tenses
                 #TODO: separate out the check for present and future tense -- what if you have to toggle but can still do so infinitely often?
-                #newCs = ivd[self.traceback[tb_key][h_item[2]]].split('\n')
                 goals = self.spec[tb_key].split('\n')
                 newCs = [goals[h_item[2]]]
-                newCsOld = newCs
 
             elif h_item[1] == "trans" or h_item[1] == "init" and useInitFlag:
                 newCs =  self.spec[tb_key].replace("\t", "\n").split("\n")
@@ -961,3 +1004,25 @@ class SpecCompiler(object):
 
         return self._synthesize()
 
+    def _iterateCores(self):
+        if self.proj.compile_options["synthesizer"].lower() != "jtlv":
+            raise RuntimeError("Analysis is currently only supported when using JTLV.")
+
+        cmd = self._getGROneCommand("GROneDebug", True)
+        if cmd is None:
+            return (False, False, [], "")
+
+        subp = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, close_fds=False)
+
+        to_highlight = []
+        output= ""
+        for dline in subp.stdout:
+            output+= dline
+            if "Guilty safety conjuncts" in dline:  
+                guilty = re.findall(r'([0-9]+)\s*',dline)
+                for g in guilty:
+                    to_highlight.append(("sys", "trans", int(g)))
+                    
+        subp.stdout.close()
+        print "OUTPUT",output
+        return to_highlight

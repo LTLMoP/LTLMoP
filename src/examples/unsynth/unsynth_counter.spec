@@ -13,6 +13,9 @@ extinguish, 0
 CompileOptions:
 convexify: True
 parser: structured
+symbolic: False
+use_region_bit_encoding: True
+synthesizer: jtlv
 fastslow: False
 decompose: True
 
@@ -50,9 +53,14 @@ Visit porch
 
 if you are sensing fire then do not living
 if you are sensing person then do not kitchen
+
+#always not living
+#always not kitchen
+
 always not radio
+if you were activating radio then do radio
 
 always not (fire and person)
 
-Always kitchen or porch or deck or bedroom or dining or living
+#Always kitchen or porch or deck or bedroom or dining or living
 
