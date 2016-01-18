@@ -33,9 +33,12 @@ def createStrategyFromFile(filename, input_propositions, output_propositions):
     if filename.endswith(".aut"):
         import fsa
         new_strategy = fsa.FSAStrategy()
-    elif filename.endswith(".bdd"):
+    elif filename.endswith(".bdd") or filename.endswith(".add"):
         import bdd
-        new_strategy = bdd.BDDStrategy()
+        if filename.endswith(".bdd"):
+            new_strategy = bdd.BDDStrategy(add = False)
+        else:
+            new_strategy = bdd.BDDStrategy(add = True)
     else:
         raise ValueError("Unsupported strategy file type.  Filename must end with either '.aut' or '.bdd'.")
 

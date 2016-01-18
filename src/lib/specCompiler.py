@@ -499,7 +499,7 @@ class SpecCompiler(object):
             # TODO: automatically compile for the user
             raise RuntimeError("Please compile the synthesis code first.  For instructions, see etc/slugs/README.md.")
 
-        cmd = [slugs_path, "--sysInitRoboticsSemantics", self.proj.getFilenamePrefix() + ".slugsin", self.proj.getFilenamePrefix() + ".aut"]
+        cmd = [slugs_path, "--sysInitRoboticsSemantics", self.proj.getFilenamePrefix() + ".slugsin"]
 
         return cmd
 
@@ -892,8 +892,12 @@ class SpecCompiler(object):
             cmd = self._getSlugsCommand()
 
             # Make sure flags are compatible
-            if any(self.proj.compile_options[k] for k in ("fastslow", "symbolic")):
-                raise RuntimeError("Slugs does not currently support fast/slow or symbolic compilation options.")
+            if self.proj.compile_options["fastslow"]:
+                raise RuntimeError("Slugs does not currently support fast/slow option.")
+            if self.proj.compile_options["symbolic"]:
+                cmd.extend(["--symbolicStrategy", self.proj.getFilenamePrefix() + ".bdd"])
+            else:
+                cmd.append(self.proj.getFilenamePrefix() + ".aut")
 
             # Create proper input for Slugs
             logging.info("Preparing Slugs input...")

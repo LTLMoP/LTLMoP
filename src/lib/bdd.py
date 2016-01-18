@@ -20,7 +20,7 @@ import logging
 #       - minimal Y after Z change
 
 class BDDStrategy(strategy.Strategy):
-    def __init__(self):
+    def __init__(self, add):
         super(BDDStrategy, self).__init__()
 
         # We will have a state collection just in order to provide a context
@@ -39,6 +39,9 @@ class BDDStrategy(strategy.Strategy):
         # TODO: why is garbage collection crashing?? :( [e.g. on firefighting]
         self.mgr.DisableGarbageCollection()
 
+        # track if this is an add or bdd
+        self.add = add
+
     def _loadFromFile(self, filename):
         """
         Load in a strategy BDD from a file produced by a synthesizer,
@@ -50,20 +53,31 @@ class BDDStrategy(strategy.Strategy):
 
         a = pycudd.DdArray(1)
 
-        # Load in the actual BDD itself
-        # Note: We are using an ADD loader because the BDD loader
-        # would expect us to have a reduced BDD with only one leaf node
-        self.mgr.AddArrayLoad(pycudd.DDDMP_ROOT_MATCHLIST,
-                              None,
-                              pycudd.DDDMP_VAR_MATCHIDS,
-                              None,
-                              None,
-                              None,
-                              pycudd.DDDMP_MODE_TEXT,
-                              filename, None, a)
+        # Load in the actual BDD or ADD itself
+        if self.add:
+            # Note: We are using an ADD loader because the BDD loader
+            # would expect us to have a reduced BDD with only one leaf node
+            self.mgr.AddArrayLoad(pycudd.DDDMP_ROOT_MATCHLIST,
+                                  None,
+                                  pycudd.DDDMP_VAR_MATCHIDS,
+                                  None,
+                                  None,
+                                  None,
+                                  pycudd.DDDMP_MODE_TEXT,
+                                  filename, None, a)
 
-        # Convert from a binary (0/1) ADD to a BDD
-        self.strategy = self.mgr.addBddPattern(a[0])
+            # Convert from a binary (0/1) ADD to a BDD
+            self.strategy = self.mgr.addBddPattern(a[0])
+            logging.debug('ADD loaded')
+        else:
+            #try loading as BDD (input from SLUGS) instead of ADD (input from JTLV)
+            self.strategy  = self.mgr.BddLoad(pycudd.DDDMP_VAR_MATCHIDS,
+                                  None,
+                                  None,
+                                  None,
+                                  pycudd.DDDMP_MODE_TEXT,
+                                  filename, None)
+            logging.debug('BDD loaded')
 
         # Load in meta-data
         with open(filename, 'r') as f:

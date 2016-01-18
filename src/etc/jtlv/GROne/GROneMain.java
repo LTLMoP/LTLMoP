@@ -146,7 +146,7 @@ public class GROneMain {
             System.out.println("Specification is synthesizable!");
             System.out.println("====> Building an implementation...");
 
-            out_filename = out_filename_base + (opt_symbolic ? ".bdd" : ".aut");
+            out_filename = out_filename_base + (opt_symbolic ? ".add" : ".aut");
 
             tic = System.currentTimeMillis();		
 

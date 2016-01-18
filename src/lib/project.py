@@ -246,7 +246,7 @@ class Project:
         """ Returns the full path of the file that should contain the strategy
             for this specification. """
 
-        return self.getFilenamePrefix() + ('.bdd' if self.compile_options["symbolic"] else '.aut')
+        return self.getFilenamePrefix() + ('.add' if (self.compile_options["symbolic"] and self.compile_options["synthesizer"].lower() == 'jtlv') else '.bdd' if (self.compile_options["symbolic"] and self.compile_options["synthesizer"].lower() == 'slugs') else '.aut')
 
 
 
