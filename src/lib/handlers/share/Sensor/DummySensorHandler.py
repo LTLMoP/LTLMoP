@@ -13,6 +13,8 @@ import sys
 
 import lib.handlers.handlerTemplates as handlerTemplates
 
+from __is_inside import *
+
 class DummySensorHandler(handlerTemplates.SensorHandler):
     def __init__(self, executor, shared_data):
         """
@@ -26,6 +28,7 @@ class DummySensorHandler(handlerTemplates.SensorHandler):
         self.sensorListenInitialized = False
         self._running = True
         self.p_sensorHandler = None
+        self.executor = executor
 
     def _stop(self):
         if self.p_sensorHandler is not None:
@@ -155,3 +158,25 @@ class DummySensorHandler(handlerTemplates.SensorHandler):
                 self.sensorValue[args[0]] = False
             else:
                 self.sensorValue[args[0]] = args[1]
+
+    def inRegion(self, regionName , initial = False):
+        """
+        Check if the robot is in this region
+        regionName (string): Name of the region
+        """    
+
+        if initial:
+            return True
+        
+        else: 
+            pose = self.executor.hsub.coordmap_lab2map(self.executor.hsub.getPose())
+            #########################################
+            ### Copied from vectorController.py #####
+            #########################################            
+
+            regionNo = self.proj.rfiold.indexOfRegionWithName(regionName)
+            pointArray = [x for x in self.proj.rfiold.regions[regionNo].getPoints()]
+            pointArray = map(self.executor.hsub.coordmap_map2lab, pointArray)
+            vertices = numpy.mat(pointArray).T 
+            #print >>sys.__stdout__, self.proj.rfiold.regions[regionNo].name +": " +  str(is_inside([pose[0], pose[1]], vertices))    
+            return is_inside([pose[0], pose[1]], vertices)

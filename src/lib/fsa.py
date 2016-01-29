@@ -78,6 +78,7 @@ class FSAStrategy(strategy.Strategy):
                 # Rewrite proposition names to make the old bitvector system work
                 # with the new one
                 prop_name = re.sub(r'^bit(\d+)$', r'region_b\1', prop_name)
+                prop_name = re.sub(r'^sbit(\d+)$', r'regionCompleted_b\1', prop_name)
                 #################################################################
 
                 if prop_value == "0":

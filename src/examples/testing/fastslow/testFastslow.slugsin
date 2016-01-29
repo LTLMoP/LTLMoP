@@ -1,0 +1,37 @@
+[INPUT]
+person
+camera_ac
+sbit0
+
+[OUTPUT]
+camera
+bit0
+
+[ENV_TRANS]
+| & ! ! sbit0' ! ! sbit0' & ! sbit0' ! sbit0'
+| ! sbit0' sbit0'
+| ! & ! sbit0 ! bit0 ! sbit0'
+| ! & sbit0 bit0 sbit0'
+| ! & camera_ac camera camera_ac'
+| ! & ! camera_ac ! camera ! camera_ac'
+
+[ENV_LIVENESS]
+| ! ! bit0 ! sbit0'
+| ! bit0 sbit0'
+
+[ENV_INIT]
+! sbit0
+! camera_ac
+
+[SYS_TRANS]
+| ! person' camera'
+| ! camera_ac camera'
+
+[SYS_LIVENESS]
+! sbit0'
+sbit0'
+
+[SYS_INIT]
+bit0
+| ! bit0 bit0
+
