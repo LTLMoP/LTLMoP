@@ -5,7 +5,6 @@ rosSensor.py - Sensor handler for the ROS interface
 ====================================================
 """
 
-import roslib
 import rospy
 from sensor_msgs.msg import *
 

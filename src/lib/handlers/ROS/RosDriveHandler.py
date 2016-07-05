@@ -9,6 +9,7 @@ using feedback linearization.
 """
 
 from math import sin, cos
+import sys
 
 import lib.handlers.handlerTemplates as handlerTemplates
 
@@ -21,13 +22,14 @@ class RosDriveHandler(handlerTemplates.DriveHandler):
         """
 
         try:
-            self.loco = executor.hsub.getHandlerInstanceByType(handlerTemplates.LocomotionCommanHandler)
+            self.loco = executor.hsub.getHandlerInstanceByType(handlerTemplates.LocomotionCommandHandler)
             self.coordmap = executor.hsub.coordmap_lab2map
         except NameError:
-            print "(DRIVE) Locomotion Command Handler not found."
+            print >>sys.__stdout__, "(DRIVE) Locomotion Command Handler not found."
             exit(-1)
 
         self.d = d
+
     def setVelocity(self, x, y, theta=0, z = 0):
         #print "VEL:%f,%f" % tuple(self.coordmap([x, y]))
 

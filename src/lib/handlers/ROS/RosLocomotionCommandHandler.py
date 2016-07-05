@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-import roslib; roslib.load_manifest('gazebo')
-
 import rospy, math, subprocess, os, sys
-from gazebo.srv import *
 
 from geometry_msgs.msg import Twist
 """
@@ -14,19 +11,21 @@ rosLocomotionCommand.py - ros Locomotion Command Handler
 import lib.handlers.handlerTemplates as handlerTemplates
 
 class RosLocomotionCommandHandler(handlerTemplates.LocomotionCommandHandler):
-	def __init__(self, executor, shared_data, velocityTopic='/base_controller/command'):
+	def __init__(self, executor, shared_data, velocityTopic='/cmd_vel_mux/input/navi'):
 		"""
 		The ROS Locomotion Command Handler
 
-		velocityTopic (str): This is the topic which handles the movement commands (default='/base_controller/command')
+		velocityTopic (str): This is the topic which handles the movement commands (default='/cmd_vel_mux/input/navi')
 		"""
+
 		try:
 			#open a publisher for the base controller of the robot
-			self.pub = rospy.Publisher(velocityTopic, Twist)
+			# TODO: queue size okay?
+			self.pub = rospy.Publisher(velocityTopic, Twist, queue_size=10)
 			# for the pr2, use /base_controller/command
 			# the turtlebot takes /cmd_vel
 		except:
-			print 'Problem setting up Locomotion Command Node'
+			print >>sys.__stdout__, 'Problem setting up Locomotion Command Node'
 
 	def sendCommand(self, cmd):
 

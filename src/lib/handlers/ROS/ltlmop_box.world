@@ -1,44 +1,83 @@
-<?xml version ='1.0'?>
-
-<model name="box_model_8" static="1">
-    <link name='body' gravity='1' self_collide='0' kinematic='0'>
-      <origin pose="0.000000 0.000000 2.25 0 -0.000000 0.000000"/>
-      <inertial mass='1.000000' density='1.000000'>
-        <inertia ixx='1.000000' ixy='0.000000' ixz='0.000000' iyy='1.000000' iyz='0.000000' izz='1.000000'/>
-      </inertial>
-      <collision name='geom' laser_retro='0.000000'>
-        <geometry>
-       <box size="2.08451344688 2.2422551104 4.5"/>
-        </geometry>
-        <origin pose='0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000'/>
-        <surface>
-          <bounce restitution_coefficient='0.000000' threshold='100000.000000'/>
-          <friction>
-            <ode mu='-1.000000' mu2='-1.000000' fdir1='0.000000 0.000000 0.000000' slip1='0.000000' slip2='0.000000'/>
-          </friction>
-          <contact>
-            <ode soft_cfm='0.000000' soft_erp='0.200000' kp='1000000000000.000000' kd='1.000000' max_vel='100.000000' min_depth='0.001000'/>
-          </contact>
-        </surface>
-      </collision>
-      <visual name='visual1' cast_shadows='1' laser_retro='0.000000' transparency='0.000000'>
-        <geometry>
-       <box size="2.08451344688 2.2422551104 4.5"/>
-        </geometry>
-        <material script='Gazebo/WoodPallet'/>
-      </visual>
-      <sensor name='cam' type='depth' always_on='1' update_rate='30.000000' visualize='0'>
-        <origin pose='0.023200 0.060000 0.098000 0.000000 -0.000000 0.000000'/>
-        <camera>
-          <horizontal_fov angle='0.785398'/>
-          <image width='320' height='240' format='L8'/>
-          <clip near='0.100000' far='100.000000'/>
-        </camera>
-      </sensor>
-      <damping>
-        <linear>0.000000</linear>
-        <angular>0.000000</angular>
-      </damping>
-    </link>
-    <origin pose="2.25859798913 -6.12614325553 0 0 0 0 " />
-  </model>
+<model name="box_model_1">
+      <pose>-0.0119447248501 -0.0107272690917 0.5 0 -0.000000 0.000000</pose>
+  <static>1</static>
+  <link name="body">
+      <pose>0.0 0.0 0.0 0 -0.000000 0.000000</pose>
+    <inertial>
+      <mass>1.000000</mass>
+      <inertia>
+        <ixx>1.000000</ixx>
+        <ixy>0.000000</ixy>
+        <ixz>0.000000</ixz>
+        <iyy>1.000000</iyy>
+        <iyz>0.000000</iyz>
+        <izz>1.000000</izz>
+      </inertia>
+    </inertial>
+    <collision name="geom">
+      <laser_retro>0.000000</laser_retro>
+      <geometry>
+       <box><size>3.96523947409 3.8311014001 1.0</size></box>
+      </geometry>
+      <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
+      <surface>
+        <bounce>
+          <restitution_coefficient>0.000000</restitution_coefficient>
+          <threshold>100000.000000</threshold>
+        </bounce>
+        <friction>
+          <ode>
+            <mu>-1.000000</mu>
+            <mu2>-1.000000</mu2>
+            <fdir1>0.000000 0.000000 0.000000</fdir1>
+            <slip1>0.000000</slip1>
+            <slip2>0.000000</slip2>
+          </ode>
+        </friction>
+        <contact>
+          <ode>
+            <soft_cfm>0.000000</soft_cfm>
+            <soft_erp>0.200000</soft_erp>
+            <kp>1000000000000.000000</kp>
+            <kd>1.000000</kd>
+            <max_vel>100.000000</max_vel>
+            <min_depth>0.001000</min_depth>
+          </ode>
+        </contact>
+      </surface>
+    </collision>
+    <visual name="visual1">
+      <cast_shadows>1</cast_shadows>
+      <laser_retro>0.000000</laser_retro>
+      <transparency>0.000000</transparency>
+      <geometry>
+       <box><size>3.96523947409 3.8311014001 1.0</size></box>
+      </geometry>
+      <material>
+        <script>Gazebo/WoodPallet</script>
+      </material>
+    </visual>
+    <sensor name="cam" type="depth">
+      <always_on>1</always_on>
+      <update_rate>30.000000</update_rate>
+      <visualize>0</visualize>
+      <pose>0.023200 0.060000 0.098000 0.000000 -0.000000 0.000000</pose>
+      <camera>
+        <horizontal_fov>0.785398</horizontal_fov>
+        <image>
+          <width>320</width>
+          <height>240</height>
+          <format>L8</format>
+        </image>
+        <clip>
+          <near>0.100000</near>
+          <far>100.000000</far>
+        </clip>
+      </camera>
+    </sensor>
+    <velocity_decay>
+      <linear>0.000000</linear>
+      <angular>0.000000</angular>
+    </velocity_decay>
+  </link>
+</model>

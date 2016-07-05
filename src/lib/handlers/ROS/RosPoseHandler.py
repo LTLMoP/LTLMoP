@@ -1,12 +1,10 @@
 #!/usr/bin/env python
-import roslib; roslib.load_manifest('gazebo')
-
 import rospy, math
-from gazebo.srv import *
 from numpy import *
 from std_msgs.msg import String
 from tf.transformations import euler_from_quaternion
-
+# TODO: don't rely on gazebo
+from gazebo_msgs import srv
 
 """
 =======================================
@@ -17,15 +15,15 @@ rosPose.py - ROS Interface Pose Handler
 import lib.handlers.handlerTemplates as handlerTemplates
 
 class RosPoseHandler(handlerTemplates.PoseHandler):
-	def __init__(self, executor, shared_data, modelName="pr2"):
+	def __init__(self, executor, shared_data, modelName="mobile_base"):
 		"""
 		Pose Handler for ROS and gazebo.
 
-		modelName (str): The model name of the robot in gazebo to get the pose information from (default="pr2")
+		modelName (str): The model name of the robot in gazebo to get the pose information from (default="turtlebot")
 		"""
 
 		#GetModelState expects the arguments model_name and relative_entity_name
-		#In this case it is pr2 and world respectively but can be changed for different robots and environments
+		#In this case it is turtlebot and world respectively but can be changed for different robots and environments
 		self.model_name = modelName
 		self.relative_entity_name = 'world' #implies the gazebo global coordinates
 		self.last_pose = None
@@ -38,7 +36,7 @@ class RosPoseHandler(handlerTemplates.PoseHandler):
 			#This returns a GetModelStateResponse, which contains data on pose
 			rospy.wait_for_service('/gazebo/get_model_state')
 			try:
-				gms = rospy.ServiceProxy('/gazebo/get_model_state', GetModelState)
+				gms = rospy.ServiceProxy('/gazebo/get_model_state', srv.GetModelState)
 				resp = gms(self.model_name,self.relative_entity_name)
 				#Cartesian Pose
 				self.pos_x = resp.pose.position.x

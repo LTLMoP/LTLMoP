@@ -6,17 +6,12 @@ rosSim.py - ROS/Gazebo Initialization Handler
 =================================================
 """
 import math
-import roslib; roslib.load_manifest('gazebo')
 import sys, subprocess, os, time, os, shutil, rospy
 import cairo, rsvg
 import re, Polygon, Polygon.IO
 import lib.regions as regions
 #import execute
 from numpy import *
-#from gazebo.srv import *
-from gazebo_msgs.srv import *
-from gazebo import gazebo_interface
-from gazebo_msgs.msg import ModelState
 from geometry_msgs.msg import Pose
 from geometry_msgs.msg import Twist
 import fileinput
@@ -24,7 +19,7 @@ import fileinput
 import lib.handlers.handlerTemplates as handlerTemplates
 
 class RosInitHandler(handlerTemplates.InitHandler):
-    def __init__(self, executor, init_region, worldFile='ltlmop_map.world', robotPixelWidth=200, robotPhysicalWidth=.5, robotPackage="pr2_gazebo", robotLaunchFile="pr2.launch", modelName = "pr2", calib=False):
+    def __init__(self, executor, init_region, worldFile='ltlmop_map.world', robotPixelWidth=2, robotPhysicalWidth=.2, robotPackage="turtlebot_bringup", robotLaunchFile="minimal.launch", modelName = "turtlebot", calib=False):
         """
         Initialization handler for ROS and gazebo
 
@@ -32,9 +27,10 @@ class RosInitHandler(handlerTemplates.InitHandler):
         worldFile (str): The alternate world launch file to be used (default="ltlmop_map.world")
         robotPixelWidth (int): The width of the robot in pixels in ltlmop (default=200)
         robotPhysicalWidth (float): The physical width of the robot in meters (default=.5)
-        robotPackage (str): The package where the robot is located (default="pr2_gazebo")
-        robotLaunchFile (str): The launch file name for the robot in the package (default="pr2.launch")
-        modelName(str): Name of the robot. Choices: pr2 and quadrotor for now(default="pr2")
+        robotPackage (str): The package where the robot is located (default="turlebot_bringup")
+        robotLaunchFile (str): The launch file name for the robot in the package (default="minimal.launch")
+        modelName(str): Name of the robot. Choices: turtlebot for now(default="turtlebot")
+        calib(bool): Something something.
         """
 
         #Set a blank offset for moving the map
@@ -45,7 +41,7 @@ class RosInitHandler(handlerTemplates.InitHandler):
         #The world file that is to be launched, see gazebo_worlds/worlds
         self.worldFile=worldFile
         #Map to real world scaling constant
-        self.ratio= robotPhysicalWidth/robotPixelWidth
+        self.ratio = robotPhysicalWidth/robotPixelWidth
         self.robotPhysicalWidth = robotPhysicalWidth
         self.modelName          = modelName
         self.coordmap_map2lab   = executor.hsub.coordmap_map2lab
@@ -53,8 +49,11 @@ class RosInitHandler(handlerTemplates.InitHandler):
 
         # change the starting pose of the box
         self.original_regions = executor.proj.loadRegionFile()
-        self.destination="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/"+self.worldFile
-        self.state      ="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_state.world"
+
+        self.path = os.path.dirname(os.path.realpath(__file__))
+
+        self.destination = self.path+ "/" + self.worldFile
+        self.state       = self.path+"/ltlmop_state.world"
         #clean the original file for world and state
         f = open(self.destination,"w")
         f.close()
@@ -62,17 +61,15 @@ class RosInitHandler(handlerTemplates.InitHandler):
         f.close()
 
         # start the world file with the necessities
-        source="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_essential_front.world"
+        source = self.path+"/ltlmop_essential_front.world"
         self.appendObject(source,self.destination)
 
         if self.worldFile=='ltlmop_map.world':
             #This creates a png copy of the regions to load into gazebo
             self.createRegionMap(executor.proj)
-        #Change robot and world file in gazebo:
-        self.changeRobotAndWorld(executor.proj)
 
         # close the world file with the necessities
-        source="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_essential_end.world"
+        source = self.path+"/ltlmop_essential_end.world"
         self.appendObject(source,self.destination)
 
         # Center the robot in the init region (not on calibration)
@@ -86,22 +83,21 @@ class RosInitHandler(handlerTemplates.InitHandler):
             f.close()
 
             # start the world file with the necessities
-            source="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_essential_front.world"
+            source = self.path+"/ltlmop_essential_front.world"
             self.appendObject(source,self.destination)
 
             if self.worldFile=='ltlmop_map.world':
                 #This creates a png copy of the regions to load into gazebo
                 self.createRegionMap(executor.proj)
-            #Change robot and world file in gazebo:
-            self.changeRobotAndWorld(executor.proj)
 
             # check if there are obstacles. If so, they will be added to the world
             for region in self.original_regions.regions:
                 if region.isObstacle is True:
+                    # TODO : add obstacles again
                     addObstacle = True
                     break
 
-            source="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_essential_state.world"
+            source = self.path + "/ltlmop_essential_state.world"
             self.appendObject(source,self.state)
 
             if addObstacle is False:
@@ -125,10 +121,10 @@ class RosInitHandler(handlerTemplates.InitHandler):
                     if region.isObstacle is True:
                         poly_region = self.createRegionPolygon(region)
                         center = poly_region.center()
-                        print >>sys.__stdout__,"center:" +str(center)
+                        print >>sys.__stdout__,"obstacle center:" +str(center)
                         pose = self.coordmap_map2lab(region.getCenter())
-                        print >>sys.__stdout__,"pose:" + str(pose)
                         pose = center
+                        print >>sys.__stdout__,"obstacle pose:" + str(pose)
                         height = region.height
                         if height == 0:
                             height = self.original_regions.getMaximumHeight()
@@ -170,6 +166,7 @@ class RosInitHandler(handlerTemplates.InitHandler):
                         else:
                             length= size[0]   #width in region.py = size[0]
                             depth= size[1]  #height in region.py =size[1]
+                            pose = (pose[0], pose[1])
                             print "INIT: pose "+str(pose)+" height: "+str(height)+" length: "+str(length)+" depth: "+str(depth)
                             self.addBox(i,length,depth,height,pose)
                         i += 1
@@ -178,11 +175,12 @@ class RosInitHandler(handlerTemplates.InitHandler):
             self.appendObject(self.state,self.destination)
 
             # close the world file with the necessities
-            source="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_essential_end.world"
+            source = self.path + "/ltlmop_essential_end.world"
             self.appendObject(source,self.destination)
 
         # set up a publisher to publish pose
-        self.pub = rospy.Publisher('/gazebo/set_model_state', ModelState)
+        # FIXME: We need to publish the pose somehow
+        # self.pub = rospy.Publisher('/gazebo/set_model_state', ModelState)
 
         # Create a subprocess for ROS
         self.rosSubProcess(executor.proj)
@@ -205,7 +203,7 @@ class RosInitHandler(handlerTemplates.InitHandler):
 
     def addBox(self,i,length,depth , height, pose):
         """
-        to add a cylinder into the world
+        to add a box into the world
         i = count for the name  (just to distinguish one model from another)
         length = length of the box (in x direction)
         depth  = depth of the box  (in y direction)
@@ -214,30 +212,26 @@ class RosInitHandler(handlerTemplates.InitHandler):
         """
         # for editing the starting pose of the cylinder (box works the same way)
         # change the name of the model
-        path="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_box.world"
+        path = self.path + "/ltlmop_box.world"
         searchExp='<model name='
-        replaceExp='<model name="box_model_'+str(i)+'" static="1">\n'
+        replaceExp='<model name="box_model_'+str(i)+'">\n'
         self.replaceAll(path,searchExp,replaceExp)
 
-        searchExp='<link name='
-        replaceExp='      <origin pose="0.000000 0.000000 '+str(float(height)/2)+' 0 -0.000000 0.000000"/>\n'
-        self.replaceNextLine(path,searchExp,replaceExp)
-
-        # change the pose of the model
-        searchExp='    </link>'
-        replaceExp='    <origin pose="'+str(pose[0])+' '+str(pose[1])+' 0 0 0 0 " />\n'
+        # searchExp='<link name='
+        searchExp='<model name='
+        replaceExp='      <pose>'+str(pose[0])+' '+ str(pose[1]) +' '+str(float(height)/2)+' 0 -0.000000 0.000000</pose>\n'
         self.replaceNextLine(path,searchExp,replaceExp)
 
         # change the radius and height of the model
-        searchExp='<box size='
-        replaceExp='       <box size="'+str(length)+' '+str(depth)+' '+str(height)+'"/>\n'
+        searchExp='<box><size>'
+        replaceExp='       <box><size>'+str(length)+' '+str(depth)+' '+str(height)+'</size></box>\n'
         self.replaceAll(path,searchExp,replaceExp)
 
         #append to the world file
         self.appendObject(path,self.destination)
 
         # change the state file for cylinder
-        path="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_state_cylinder.world"
+        path = self.path + "/ltlmop_state_cylinder.world"
         searchExp='    <model name='
         replaceExp='    <model name="box_model_'+str(i)+'">\n'
         self.replaceAll(path,searchExp,replaceExp)
@@ -263,26 +257,26 @@ class RosInitHandler(handlerTemplates.InitHandler):
         """
         # for editing the starting pose of the cylinder (box works the same way)
         # change the name of the model
-        path="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_cylinder.world"
+        path = self.path + "/ltlmop_cylinder.world"
         searchExp='<model name='
-        replaceExp='<model name="cylinder_'+str(i)+'" static="1">\n'
+        replaceExp='<model name="cylinder_'+str(i)+'"><static>1</static>\n'
         self.replaceAll(path,searchExp,replaceExp)
 
         # change the pose of the model
         searchExp='    </link>'
-        replaceExp='    <origin pose="'+str(pose[0])+' '+str(pose[1])+' 0 0 0 0 " />\n'
+        replaceExp='    <pose>'+str(pose[0])+' '+str(pose[1])+' 0 0 0 0 </pose> />\n'
         self.replaceNextLine(path,searchExp,replaceExp)
 
         # change the radius and height of the model
-        searchExp='<cylinder radius='
-        replaceExp='       <cylinder radius="'+ str(radius)+'" length="'+str(height)+'"/>\n'
+        searchExp='<cylinder><radius>'
+        replaceExp='       <cylinder><radius>'+ str(radius)+'</radius><length>'+str(height)+'</length></cylinder>\n'
         self.replaceAll(path,searchExp,replaceExp)
 
         #append to the world file
         self.appendObject(path,self.destination)
 
         # change the state file for cylinder
-        path="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_state_cylinder.world"
+        path= self.path + "/ltlmop_state_cylinder.world"
         searchExp='    <model name='
         replaceExp='    <model name="cylinder_'+str(i)+'">\n'
         self.replaceAll(path,searchExp,replaceExp)
@@ -385,7 +379,7 @@ class RosInitHandler(handlerTemplates.InitHandler):
         Gazebo Simulator.
         """
         #This block creates a copy and converts to svg
-        texture_dir =  '/opt/ros/fuerte/stacks/simulator_gazebo/gazebo/gazebo/share/gazebo-1.0.2/Media/materials/textures' #potentially dangerous as pathd in ROS change with updates
+        texture_dir = self.path
         ltlmop_path = proj.getFilenamePrefix()
         regionsFile = ltlmop_path+"_copy.regions"
         shutil.copy(proj.rfi.filename,regionsFile)
@@ -407,56 +401,45 @@ class RosInitHandler(handlerTemplates.InitHandler):
 
         # Change size of region map in gazebo
         # This is accomplished through edits of the world file before opening
-        path="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/"+self.worldFile # Potential problem when version changes >_<
-        #path="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/worlds/ltlmop_map.world" # Potential problem when version changes >_<
-        searchExp='<box size='
-        T=[self.ratio*self.imgWidth,self.ratio*self.imgHeight]
+        path=self.path + "/" + self.worldFile # Potential problem when version changes >_<
+        searchExp='<plane><size>'
+        T=[self.ratio * self.imgWidth,self.ratio * self.imgHeight]
         resizeX=T[0]
         resizeY=T[1]
-        replaceExp='            <box size="'+str(resizeX)+' '+str(resizeY)+' .1" />\n'
+        replaceExp='            <plane><size>'+str(resizeX)+' '+str(resizeY)+'</size><normal>0 0 1</normal></plane>\n'
         self.replaceAll(path,searchExp,replaceExp)
 
-    def changeRobotAndWorld(self, proj):
-        """
-        This changes the robot in the launch file
-        """
-        #Accomplish through edits in the launch file
-        path="/opt/ros/fuerte/stacks/simulator_gazebo/gazebo_worlds/launch/ltlmop.launch"
-        searchExp='<include file='
-        replaceExp='    <include file="$(find '+self.package+')/launch/'+self.launchFile+'" />\n'
+        searchExp='<uri>'
+        replaceExp='              <uri>'+self.path+'/ltlmop.material</uri>\n'
         self.replaceAll(path,searchExp,replaceExp)
-
-
-        searchExp='<node name="gazebo" pkg="gazebo"'
-        replaceExp='    <node name="gazebo" pkg="gazebo" type="gazebo" args=" $(find gazebo_worlds)/worlds/'+self.worldFile+'" respawn="false" output="screen"/>\n'
-        self.replaceAll(path,searchExp,replaceExp)
-
 
     def rosSubProcess(self, proj, worldFile='ltlmop_map.world'):
-        start = subprocess.Popen(['roslaunch gazebo_worlds ltlmop.launch'], shell = True, stdout=subprocess.PIPE)
-        start_output = start.stdout
-
+        start = subprocess.Popen(['stdbuf -oL roslaunch '+ self.path + '/ltlmop.launch world_file:='+self.path+'/'+worldFile], shell = True, stdout=subprocess.PIPE)
 
         # Wait for it to fully start up
         while 1:
-            input = start_output.readline()
-            print input, # Pass it on
+            input = start.stdout.readline()
+
+            print >>sys.__stdout__, input.rstrip() # Pass it on
             if input == '': # EOF
                 print "(INIT) WARNING:  Gazebo seems to have died!"
                 break
-            if "Successfully spawned" or "successfully spawned" in input:
-                #Successfully spawend is output from the creation of the PR2
+            # if "Successfully spawned" or "successfully spawned" in input:
+            # TODO only works for gazebo2?
+            if "started roslaunch server" in input:
+                #Successfully spawend is output from the creation of the robot
                 #It might get stuck waiting for another type of robot to spawn
+                print "Gazebo finished starting up"
                 time.sleep(5)
                 break
 
-    def centerTheRobot(self, proj, init_region):
+    def centerTheRobot(self, executor, init_region):
         # Start in the center of the defined initial region
 
         try: #Normal operation
-            initial_region = proj.rfiold.regions[proj.rfiold.indexOfRegionWithName(init_region)]
+            initial_region = executor.proj.rfiold.regions[executor.proj.rfiold.indexOfRegionWithName(init_region)]
         except: #Calibration
-            initial_region = proj.rfi.regions[proj.rfi.indexOfRegionWithName(init_region)]
+            initial_region = executor.proj.rfi.regions[executor.proj.rfi.indexOfRegionWithName(init_region)]
         center = initial_region.getCenter()
 
         # Load the map calibration data and the region file data to feed to the simulator
@@ -466,3 +449,12 @@ class RosInitHandler(handlerTemplates.InitHandler):
         print "Initial region name: ", initial_region.name, " I think I am here: ", map2lab, " and center is: ", center
 
         os.environ['ROBOT_INITIAL_POSE']="-x "+str(map2lab[0])+" -y "+str(map2lab[1])
+
+# Needed because of errors due to control sequences?
+import unicodedata
+def remove_control_characters_unicode(s):
+    return "".join(ch for ch in s if unicodedata.category(ch)[0]!="C")
+
+def remove_control_characters(s):
+    mpa = dict.fromkeys(range(32))
+    return s.translate(mpa)

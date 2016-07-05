@@ -1,113 +1,23 @@
-<state world_name='default' time='17 182000000'>
-    <model name='plane1_model'>
-      <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
-      <link name='body'>
+    <state world_name="default">
+      <model name="plane1_model">
         <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_0">
-      <pose>1.65849964648 -2.61616875532 0 0 0 0 </pose>
-      <link name='link'>
+        <link name="body">
+          <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
+          <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
+        </link>
+      </model><model name="box_model_1">
+  <pose>0.0 0.0 0 0 0 0 </pose>
+  <link name="body">
       <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_1">
-      <pose>-0.409779283522 -3.98561934142 0 0 0 0 </pose>
-      <link name='link'>
+    <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
+  </link>
+</model>
+
+<model name="box_model_1">
+  <pose>0.0 0.0 0 0 0 0 </pose>
+  <link name="body">
       <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_2">
-      <pose>-9.28088428874 -3.13990336064 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_3">
-      <pose>-5.46789295333 0.638374339175 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_4">
-      <pose>-8.37241009903 2.44128363715 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_5">
-      <pose>3.23897459411 0.684788119363 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_6">
-      <pose>-2.12334946664 0.0221343694652 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_7">
-      <pose>-3.11377826481 -6.14149716563 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="box_model_8">
-      <pose>2.25859798913 -6.12614325553 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 0 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="cylinder_9">
-      <pose>9.45844221375 3.36539336654 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 1.5 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="cylinder_10">
-      <pose>2.386537473 2.32824812663 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 1.5 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="cylinder_11">
-      <pose>4.53909548089 3.91019913599 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 1.5 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="cylinder_12">
-      <pose>2.37962730467 6.58977228197 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 1.5 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="cylinder_13">
-      <pose>9.47234001915 5.38063452951 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 1.5 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
-    <model name="cylinder_14">
-      <pose>6.73558649936 6.5990963012 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 1.5 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
+    <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
+  </link>
+</model>
+

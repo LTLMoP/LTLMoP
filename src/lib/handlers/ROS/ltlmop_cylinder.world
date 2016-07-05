@@ -1,36 +1,64 @@
-<?xml version ='1.0'?>
-
-<model name="cylinder_14" static="1">
-    <link name='link' gravity='1' self_collide='0' kinematic='0'>
-      <origin pose="0.000000 0.000000 0.5 0 -0.000000 0.000000"/>
-      <inertial mass='1.000000' density='1.000000'>
-        <inertia ixx='1.000000' ixy='0.000000' ixz='0.000000' iyy='1.000000' iyz='0.000000' izz='1.000000'/>
+<model name="cylinder_14"><static>1</static>
+  <link name="body">
+    <gravity>1</gravity>
+    <self_collide>0</self_collide>
+    <kinematic>0</kinematic>
+    <pose>0.000000 0.000000 0.5 0 -0.000000 0.000000</pose>
+    <inertial>
+      <mass>1.000000</mass>
+      <!-- <density>1.000000</density> -->
+      <inertia>
+        <ixx>1.000000</ixx>
+        <ixy>0.000000</ixy>
+        <ixz>0.000000</ixz>
+        <iyy>1.000000</iyy>
+        <iyz>0.000000</iyz>
+        <izz>1.000000</izz>
+      </inertia>
       </inertial>
-      <collision name='collision' laser_retro='0.000000'>
+      <collision name='collision'>
+        <laser_retro>0.000000</laser_retro>
         <geometry>
-       <cylinder radius="0.528049462913" length="3.0"/>
+          <cylinder><radius>0.528049462913</radius><length>3.0</length></cylinder>
         </geometry>
-        <origin pose='0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000'/>
+        <origin>
+          <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
+        </origin>
         <surface>
-          <bounce restitution_coefficient='0.000000' threshold='100000.000000'/>
+          <bounce>
+            <restitution_coefficient>0.000000</restitution_coefficient>
+            <threshold>100000.000000</threshold>
+          </bounce>
           <friction>
             <ode mu='-1.000000' mu2='-1.000000' fdir1='0.000000 0.000000 0.000000' slip1='0.000000' slip2='0.000000'/>
           </friction>
           <contact>
-            <ode soft_cfm='0.000000' soft_erp='0.200000' kp='1000000000000.000000' kd='1.000000' max_vel='100.000000' min_depth='0.001000'/>
+            <ode>
+              <soft_cfm>0.000000</soft_cfm>
+              <soft_erp>0.200000</soft_erp>
+              <kp>1000000000000.000000</kp>
+              <kd>1.000000</kd>
+              <max_vel>100.000000</max_vel>
+              <min_depth>0.001000</min_depth>
+            </ode>
           </contact>
         </surface>
       </collision>
-      <visual name='visual' cast_shadows='1' laser_retro='0.000000' transparency='0.000000'>
+      <visual name='visual'>
+        <cast_shadows>1</cast_shadows>
+        <laser_retro>0.000000</laser_retro>
+        <transparency>0.000000</transparency>
         <geometry>
-       <cylinder radius="0.528049462913" length="3.0"/>
+          <cylinder><radius>0.528049462913</radius><length>3.0</length></cylinder>
         </geometry>
-        <material script='Gazebo/Grey'/>
+        <material>
+          <script>Gazebo/Grey</script>
+        </material>
       </visual>
-      <damping>
+      <velocity_decay>
         <linear>0.000000</linear>
         <angular>0.000000</angular>
-      </damping>
+      </velocity_decay>
     </link>
-    <origin pose="6.73558649936 6.5990963012 0 0 0 0 " />
-  </model>
+      <pose>6.73558649936 6.5990963012 0 0 0 0 </pose>
+    </model>

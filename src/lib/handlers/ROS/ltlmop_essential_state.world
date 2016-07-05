@@ -1,8 +1,8 @@
-<state world_name='default' time='17 182000000'>
-    <model name='plane1_model'>
-      <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
-      <link name='body'>
+    <state world_name="default">
+      <model name="plane1_model">
         <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
+        <link name="body">
+          <pose>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</pose>
+          <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
+        </link>
+      </model>

@@ -1,7 +1,8 @@
-    <model name="cylinder_14">
-      <pose>6.73558649936 6.5990963012 0 0 0 0 </pose>
-      <link name='link'>
-      <pose>0 0 1.5 0 0 0 </pose>
-        <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
-      </link>
-    </model>
+<model name="box_model_1">
+  <pose>0.0 0.0 0 0 0 0 </pose>
+  <link name="body">
+      <pose>0 0 0 0 0 0 </pose>
+    <velocity>0.000000 0.000000 0.000000 0.000000 -0.000000 0.000000</velocity>
+  </link>
+</model>
+
