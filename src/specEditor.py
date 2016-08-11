@@ -8,7 +8,7 @@
     A development environment for specifications written in structured English,
     allowing for editing, compilation, and execution/simulation
 """
-
+#import dynamic_gui
 import re, sys, os, subprocess
 import wx, wx.richtext, wx.stc
 import threading
@@ -276,6 +276,8 @@ class SpecEditorFrame(wx.Frame):
         global MENU_ANALYZE; MENU_ANALYZE = wx.NewId()
         global MENU_DOTTY; MENU_DOTTY = wx.NewId()
         global MENU_MOPSY; MENU_MOPSY = wx.NewId()
+        #global MENU_VISUALIZE; MENU_VISUALIZE = wx.newId() #new menu item visualize
+        global MENU_DYNAMICS; MENU_DYNAMICS = wx.NewId()  #should open dynamic gui
         wxglade_tmp_menu = wx.Menu()
         wxglade_tmp_menu.Append(wx.ID_NEW, "&New\tCtrl-N", "", wx.ITEM_NORMAL)
         wxglade_tmp_menu.Append(wx.ID_OPEN, "&Open...\tCtrl-O", "", wx.ITEM_NORMAL)
@@ -322,6 +324,9 @@ class SpecEditorFrame(wx.Frame):
         wxglade_tmp_menu = wx.Menu()
         wxglade_tmp_menu.Append(wx.ID_ABOUT, "&About Specification Editor...", "", wx.ITEM_NORMAL)
         self.frame_1_menubar.Append(wxglade_tmp_menu, "&Help")
+        wxglade_tmp_menu = wx.Menu()
+        wxglade_tmp_menu.Append(MENU_DYNAMICS, "&View Dynamics", "") #dynamics
+        self.frame_1_menubar.Append(wxglade_tmp_menu, "&Visualize")  #menu visualize
         self.SetMenuBar(self.frame_1_menubar)
         # Menu Bar end
         self.window_1 = wx.SplitterWindow(self, wx.ID_ANY, style=wx.SP_3D | wx.SP_BORDER | wx.SP_LIVE_UPDATE)
@@ -387,6 +392,7 @@ class SpecEditorFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onMenuViewAut, id=MENU_DOTTY)
         self.Bind(wx.EVT_MENU, self.onMenuMopsy, id=MENU_MOPSY)
         self.Bind(wx.EVT_MENU, self.onMenuAbout, id=wx.ID_ABOUT)
+        self.Bind(wx.EVT_MENU, self.onMenuVisualize, id=MENU_DYNAMICS)
         self.Bind(wx.EVT_LISTBOX_DCLICK, self.onPropositionDblClick, self.list_box_regions)
         self.Bind(wx.EVT_BUTTON, self.onMapSelect, self.button_map)
         self.Bind(wx.EVT_BUTTON, self.onClickEditRegions, self.button_edit_regions)
@@ -402,6 +408,7 @@ class SpecEditorFrame(wx.Frame):
         self.Bind(wx.EVT_LISTBOX, self.onLocPhraseSelect, self.list_box_locphrases)
         self.Bind(wx.EVT_CHECKBOX, self.onRegionLabelStyleChange, self.checkbox_regionlabel)
         self.Bind(wx.EVT_CHECKBOX, self.onRegionLabelStyleChange, self.checkbox_regionlabelbits)
+        
         # end wxGlade
 
         # Listen for checkbox toggles
@@ -1533,6 +1540,12 @@ class SpecEditorFrame(wx.Frame):
 
         subprocess.Popen([sys.executable, os.path.join(self.proj.ltlmop_root, "etc", "utils", "mopsy.py"), self.proj.getFilenamePrefix()+".spec", str(desired_jx)])
 
+    def onMenuVisualize(self,event):
+        
+        subprocess.Popen([sys.executable, os.path.join(self.proj.ltlmop_root, "etc", "utils", "dynamic_gui.py"),
+                          self.proj.getFilenamePrefix()+".spec"])
+
+    
     def onPropAdd(self, event): # wxGlade: SpecEditorFrame.<event_handler>
         """
         Display a dialog asking for a proposition name and then
