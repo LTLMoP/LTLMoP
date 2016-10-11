@@ -154,24 +154,12 @@ class LTLMoPExecutor(ExecutorStrategyExtensions,ExecutorResynthesisExtensions, o
         self.runStrategy.clear()
         logging.info("QUITTING.")
 
-        all_handler_types = ['init', 'pose', 'locomotionCommand', 'drive', 'motionControl', 'sensor', 'actuator']
-
-        for htype in all_handler_types:
-            logging.info("Terminating {} handler...".format(htype))
-            if htype in self.proj.h_instance:
-                if isinstance(self.proj.h_instance[htype], dict):
-                    handlers = [v for k,v in self.proj.h_instance[htype].iteritems()]
-                else:
-                    handlers = [self.proj.h_instance[htype]]
-
-                for h in handlers:
-                    if hasattr(h, "_stop"):
-                        logging.debug("Calling _stop() on {}".format(h.__class__.__name__))
-                        h._stop()
-                    else:
-                        logging.debug("{} does not have _stop() function".format(h.__class__.__name__))
+        for h in self.hsub.handler_instance:
+            if hasattr(h, "_stop"):
+                logging.debug("Calling _stop() on {}".format(h.__class__.__name__))
+                h._stop()
             else:
-                logging.debug("{} handler not found in h_instance".format(htype))
+                logging.debug("{} does not have _stop() function".format(h.__class__.__name__))
 
         self.alive.clear()
 
